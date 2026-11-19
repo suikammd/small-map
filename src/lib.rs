@@ -118,7 +118,7 @@ type DefaultInlineHasher = DefaultHeapHasher;
 
 /// Default threshold for switching from linear search to SIMD hash search.
 /// When `N` or `len` is less than this value, linear search is used.
-/// Equal to the SIMD group width (16 on SSE2, 8 on NEON/generic).
+/// Equal to the SIMD group width (16 on SSE2, 8 on NEON, and 8 or 4 on generic targets).
 pub const DEFAULT_LINEAR_THRESHOLD: usize = raw::Group::WIDTH;
 
 /// A hybrid map that stores data inline when small, and spills to heap when it grows.
@@ -148,21 +148,22 @@ pub const DEFAULT_LINEAR_THRESHOLD: usize = raw::Group::WIDTH;
 ///
 /// - `LINEAR_THRESHOLD`: Threshold for switching between linear and SIMD search. Default:
 ///   [`DEFAULT_LINEAR_THRESHOLD`] (equal to SIMD group width, typically 16 on SSE2). When `N <
-///   LINEAR_THRESHOLD` or `len < LINEAR_THRESHOLD`, linear search is used; otherwise,
+///   LINEAR_THRESHOLD` or `len < max(LINEAR_THRESHOLD, 2)`, linear search is used; otherwise,
 ///   SIMD-accelerated hash search is used.
 ///
 ///   **How to choose this value**: The optimal threshold depends on the tradeoff between
 ///   hash computation cost and key comparison cost:
 ///   - **Linear search**: `len` key comparisons (direct equality checks).
-///   - **SIMD search**: 1 hash computation + `len / GROUP_WIDTH` SIMD operations + a few key
-///     comparisons.
+///   - **SIMD search**: 1 hash computation + up to `ceil(len / GROUP_WIDTH)` SIMD group scans +
+///     a few key comparisons.
 ///
 ///   If key comparison is cheap (e.g., integers, short strings), a higher threshold favors
 ///   linear search which avoids hash overhead. If key comparison is expensive (e.g., long
 ///   strings, complex types), a lower threshold makes SIMD search more attractive.
 ///
 ///   **Recommendation**: Values above 16 are generally not recommended. The default value
-///   works well for most use cases. Set to `0` to disable linear search entirely.
+///   works well for most use cases. Set to `0` to minimize linear search; lookups with `len < 2`
+///   still use linear search.
 ///
 /// # Examples
 ///
@@ -1683,15 +1684,15 @@ mod tests {
 
     #[test]
     fn linear_search_threshold() {
-        // Test with N <= Group::WIDTH (16 on SSE2, 8 on NEON)
-        // This should use linear search
+        // With N = len = 8 and the default threshold, Group::WIDTH = 16 uses
+        // linear search, while widths 8 and 4 use SIMD search.
         let mut map: SmallMap<8, i32, i32> = SmallMap::new();
 
         for i in 0..8 {
             map.insert(i, i * 10);
         }
 
-        // All lookups should work (linear search path)
+        // All lookups should work on either search path
         for i in 0..8 {
             assert_eq!(map.get(&i), Some(&(i * 10)));
         }
@@ -2086,7 +2087,7 @@ mod tests {
     #[test]
     fn test_inline_insert_unique_hash_consistency() {
         // N=8, LINEAR_THRESHOLD=4
-        // Group::WIDTH = 16 (SSE2) or 8 (NEON) or 8 (Generic).
+        // Group::WIDTH = 16 (SSE2), 8 (NEON), or 8/4 (generic).
         // If Group::WIDTH == 16, N <= Group::WIDTH (8 <= 16) is True.
         // N < LINEAR_THRESHOLD (8 < 4) is False.
         // MIN_LINEAR_LEN = 4.
@@ -2114,7 +2115,7 @@ mod tests {
         // If Group::WIDTH is 8 (Generic/Neon), then N <= Group::WIDTH (8<=8) is True.
         // So the bug exists there too.
 
-        // Only if Group::WIDTH < 8 (impossible) would the bug be hidden.
+        // Only if Group::WIDTH < 8 (the 32-bit generic implementation) would the bug be hidden.
 
         assert_eq!(map.get(&1), Some(&10), "Failed to find 1");
         assert_eq!(map.get(&5), Some(&50), "Failed to find 5");
