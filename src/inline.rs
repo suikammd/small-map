@@ -80,8 +80,8 @@ impl<const N: usize, T: Clone, const LINEAR_THRESHOLD: usize> Clone
             }
         }
 
+        let mut aligned_groups: AlignedGroups<N> = AlignedGroups::zeroed();
         // SAFETY: MaybeUninit doesn't require initialization
-        let mut aligned_groups: AlignedGroups<N> = unsafe { MaybeUninit::uninit().assume_init() };
         let mut data: [MaybeUninit<T>; N] = unsafe { MaybeUninit::uninit().assume_init() };
 
         let mut guard = DropGuard {
@@ -111,13 +111,42 @@ impl<const N: usize, T: Clone, const LINEAR_THRESHOLD: usize> Clone
 #[derive(Clone, Copy)]
 pub(crate) struct AlignedGroups<const N: usize> {
     groups: [MaybeUninit<u8>; N],
+    // The tail `Group::load` in `find` always reads a full `Group::WIDTH`
+    // window, which extends past `groups[len..]`; it can reach at most
+    // `N + Group::WIDTH - 1` bytes. `tail` (laid out directly after `groups`
+    // thanks to `repr(C)` and the byte alignment) keeps those loads in-bounds.
+    tail: [MaybeUninit<u8>; Group::WIDTH - 1],
     _align: [Group; 0],
 }
 
 impl<const N: usize> AlignedGroups<N> {
+    // All ctrl bytes must be initialized before any `Group::load`, including
+    // the padding past `len` and the trailing `tail` bytes, even though only
+    // the bytes below `len` carry meaning. Bytes masked off by
+    // `LOWEST_MASK[tail_len]` stay 0 until real inserts reuse those slots.
     #[inline]
-    unsafe fn ctrl(&self, index: usize) -> *mut u8 {
-        (self.groups.as_ptr() as *const u8).add(index).cast_mut()
+    const fn zeroed() -> Self {
+        Self {
+            groups: [MaybeUninit::new(0); N],
+            tail: [MaybeUninit::new(0); Group::WIDTH - 1],
+            _align: [],
+        }
+    }
+
+    // `groups` is the first field of a `repr(C)` struct, so the base pointer
+    // of `Self` doubles as the base pointer of the ctrl bytes. Deriving from
+    // the whole struct (rather than `&self.groups`) covers the `tail` bytes
+    // that a tail `Group::load` also reads.
+    #[inline]
+    unsafe fn ctrl(&self, index: usize) -> *const u8 {
+        (self as *const Self).cast::<u8>().add(index)
+    }
+
+    // Mutable counterpart: writes must come from `&mut self` so the pointer
+    // is not only granted SharedReadOnly permission.
+    #[inline]
+    unsafe fn ctrl_mut(&mut self, index: usize) -> *mut u8 {
+        (self as *mut Self).cast::<u8>().add(index)
     }
 }
 
@@ -149,17 +178,22 @@ impl<const N: usize, T, const LINEAR_THRESHOLD: usize> RawInline<N, T, LINEAR_TH
 
     /// Searches for an element. Uses linear search for small N/len, SIMD otherwise.
     /// Hash is computed lazily only when SIMD path is taken.
+    ///
+    /// Returns the matching slot index rather than a `Bucket`: this only takes
+    /// `&self`, and callers that need to write must re-derive the pointer
+    /// through their own `&mut self` (`bucket_mut`) instead of through a
+    /// shared reference.
     #[inline]
     fn find<F: FnOnce() -> u64>(
         &self,
         hash: &mut HashValue<F>,
         mut eq: impl FnMut(&T) -> bool,
-    ) -> Option<Bucket<T>> {
+    ) -> Option<usize> {
         if N < LINEAR_THRESHOLD || self.len < Self::MIN_LINEAR_LEN {
             // Linear search - no hash needed
             for i in 0..self.len {
                 if eq(unsafe { self.data.get_unchecked(i).assume_init_ref() }) {
-                    return Some(unsafe { self.bucket(i) });
+                    return Some(i);
                 }
             }
             None
@@ -176,7 +210,7 @@ impl<const N: usize, T, const LINEAR_THRESHOLD: usize> RawInline<N, T, LINEAR_TH
                         let index = probe_pos + bit;
                         let item: &T = self.data.get_unchecked(index).assume_init_ref();
                         if likely(eq(item)) {
-                            return Some(self.bucket(index));
+                            return Some(index);
                         }
                     }
                     probe_pos += Group::WIDTH;
@@ -189,7 +223,7 @@ impl<const N: usize, T, const LINEAR_THRESHOLD: usize> RawInline<N, T, LINEAR_TH
                         let index = probe_pos + bit;
                         let item: &T = self.data.get_unchecked(index).assume_init_ref();
                         if likely(eq(item)) {
-                            return Some(self.bucket(index));
+                            return Some(index);
                         }
                     }
                 }
@@ -203,9 +237,9 @@ impl<const N: usize, T, const LINEAR_THRESHOLD: usize> RawInline<N, T, LINEAR_TH
     #[inline]
     unsafe fn insert_in_slot(&mut self, hash: u64, slot: InsertSlot, value: T) -> Bucket<T> {
         // SAFETY: The caller must uphold the safety rules for the [`RawTableInner::set_ctrl_h2`]
-        *self.aligned_groups.ctrl(slot.index) = h2(hash);
+        *self.aligned_groups.ctrl_mut(slot.index) = h2(hash);
         self.len += 1;
-        let bucket = self.bucket(slot.index);
+        let bucket = self.bucket_mut(slot.index);
         bucket.write(value);
         bucket
     }
@@ -218,27 +252,24 @@ impl<const N: usize, T, const LINEAR_THRESHOLD: usize> RawInline<N, T, LINEAR_TH
         eq: impl FnMut(&T) -> bool,
     ) -> Option<T> {
         match self.find(hash, eq) {
-            Some(bucket) => Some(unsafe { self.remove(bucket).0 }),
+            Some(index) => Some(unsafe { self.remove(index).0 }),
             None => None,
         }
     }
 
     /// Removes an element from the table, returning it.
     /// Uses swap-delete: swaps with last element to maintain contiguity.
+    ///
+    /// Takes the slot index instead of a `Bucket` from the caller: a bucket
+    /// derived from an earlier `&mut self` reborrow would be invalidated by
+    /// this call's own `&mut self` function-entry retag. Here the bucket is
+    /// derived from this call's receiver and read immediately, before the
+    /// `erase` call reborrows `self` again.
     #[inline]
-    #[allow(clippy::needless_pass_by_value)]
-    unsafe fn remove(&mut self, item: Bucket<T>) -> (T, InsertSlot) {
-        let index = self.bucket_index(&item);
-        // Read value before swap-delete
-        let value = item.read();
+    unsafe fn remove(&mut self, index: usize) -> (T, InsertSlot) {
+        let value = self.bucket_mut(index).read();
         self.erase(index);
         (value, InsertSlot { index })
-    }
-
-    /// Returns the index of a bucket from a `Bucket`.
-    #[inline]
-    unsafe fn bucket_index(&self, bucket: &Bucket<T>) -> usize {
-        bucket.to_base_index(NonNull::new_unchecked(self.data.as_ptr() as _))
     }
 
     /// Erases the element at index using swap-delete.
@@ -259,11 +290,28 @@ impl<const N: usize, T, const LINEAR_THRESHOLD: usize> RawInline<N, T, LINEAR_TH
     }
 
     /// Returns a pointer to an element in the table.
+    ///
+    /// The pointer is derived from `&self`, so it may only be used for reads;
+    /// writes must go through `bucket_mut`.
     #[inline]
     unsafe fn bucket(&self, index: usize) -> Bucket<T> {
         Bucket::from_base_index(
             NonNull::new_unchecked(transmute::<*mut MaybeUninit<T>, *mut T>(
                 self.data.as_ptr().cast_mut(),
+            )),
+            index,
+        )
+    }
+
+    /// Returns a pointer to an element in the table that may be written to.
+    ///
+    /// Derived from `&mut self`, so the returned bucket does not carry mere
+    /// SharedReadOnly permission the way one derived from `&self` would.
+    #[inline]
+    unsafe fn bucket_mut(&mut self, index: usize) -> Bucket<T> {
+        Bucket::from_base_index(
+            NonNull::new_unchecked(transmute::<*mut MaybeUninit<T>, *mut T>(
+                self.data.as_mut_ptr(),
             )),
             index,
         )
@@ -444,9 +492,12 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
 
         Self {
             raw: RawInline {
-                // SAFETY: MaybeUninit doesn't require initialization, len tracks validity
-                aligned_groups: unsafe { MaybeUninit::uninit().assume_init() },
+                // Control bytes are all zeroed: `Group::load` may read the
+                // padding past `len` and the trailing `tail` bytes, so they
+                // must never be uninitialized.
+                aligned_groups: AlignedGroups::zeroed(),
                 len: 0,
+                // SAFETY: MaybeUninit doesn't require initialization, len tracks validity
                 data: unsafe { MaybeUninit::uninit().assume_init() },
             },
             inline_hasher: Some(hash_builder),
@@ -553,7 +604,10 @@ where
             let hash_builder = self.inline_hasher.as_ref().unwrap();
             let mut hash = HashValue::new(|| make_hash::<K, SI>(hash_builder, &k));
             match self.raw.find(&mut hash, equivalent_key(&k)) {
-                Some(bucket) => Some(mem::replace(unsafe { &mut bucket.as_mut().1 }, v)),
+                Some(index) => Some(mem::replace(
+                    unsafe { &mut self.raw.bucket_mut(index).as_mut().1 },
+                    v,
+                )),
                 None => {
                     let slot = InsertSlot {
                         index: self.raw.len,
@@ -618,7 +672,7 @@ where
         }
         let mut hash = HashValue::new(|| make_hash::<Q, SI>(self.inline_hasher(), k));
         match self.raw.find(&mut hash, equivalent_key(k)) {
-            Some(bucket) => Some(unsafe { bucket.as_ref() }),
+            Some(index) => Some(unsafe { self.raw.bucket(index).as_ref() }),
             None => None,
         }
     }
@@ -634,7 +688,7 @@ where
         let hash_builder = self.inline_hasher.as_ref().unwrap();
         let mut hash = HashValue::new(|| make_hash::<Q, SI>(hash_builder, k));
         match self.raw.find(&mut hash, equivalent_key(k)) {
-            Some(bucket) => Some(unsafe { bucket.as_mut() }),
+            Some(index) => Some(unsafe { self.raw.bucket_mut(index).as_mut() }),
             None => None,
         }
     }

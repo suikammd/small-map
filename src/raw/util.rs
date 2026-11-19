@@ -109,20 +109,6 @@ impl<T> Bucket<T> {
         }
     }
 
-    /// Calculates the index of a [`Bucket`] as distance between two pointers
-    /// (convenience for `base.as_ptr().offset_from(self.ptr.as_ptr()) as usize`).
-    /// The returned value is in units of T: the distance in bytes divided by
-    /// [`core::mem::size_of::<T>()`].
-    #[inline]
-    pub(crate) unsafe fn to_base_index(&self, base: NonNull<T>) -> usize {
-        if T::IS_ZERO_SIZED {
-            // this can not be UB
-            self.ptr.as_ptr() as usize - 1
-        } else {
-            self.ptr.as_ptr().offset_from(base.as_ptr()) as usize
-        }
-    }
-
     /// Acquires the underlying raw pointer `*mut T` to `data`.
     #[inline]
     pub(crate) fn as_ptr(&self) -> *mut T {
