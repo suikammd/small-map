@@ -53,7 +53,7 @@ The `std` feature is enabled by default. To use SmallMap in a `no_std` crate, di
 small-map = { version = "0.1", default-features = false }
 ```
 
-`SmallMap` and `SmallSet` then use `foldhash::fast::RandomState` by default, except on MSP430 where foldhash 0.2.0 cannot use pointer-sized atomic loads/stores and deterministic FNV-1a hashing is used instead. Neither default provides the same HashDoS resistance as std's `RandomState`, so choose hashers appropriate for untrusted keys.
+`SmallMap` and `SmallSet` then use `foldhash::fast::RandomState` by default. This default does not provide the same HashDoS resistance as std's `RandomState`, so choose hashers appropriate for untrusted keys. Target support also depends on the capabilities required by the selected heap and inline hashers; support is not guaranteed for every target.
 
 For the faster hasher aliases, enable an external hasher feature such as `fxhash`:
 

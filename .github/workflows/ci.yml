@@ -101,16 +101,6 @@ jobs:
       - name: Check combined library hashers and serde
         run: cargo check --lib --target thumbv7em-none-eabi --no-default-features --features hashes,serde
 
-      - name: Install Rust nightly for MSP430 build-std
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly
-          components: rust-src
-
-      - name: Check MSP430 default and external custom hashers
-        run: |
-          cargo +nightly build --manifest-path tests/no-std/Cargo.toml --lib --target msp430-none-elf -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem
-          cargo +nightly check --manifest-path tests/no-std/Cargo.toml --target msp430-none-elf --features serde -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem
 
   clippy:
     name: Clippy

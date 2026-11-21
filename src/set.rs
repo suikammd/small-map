@@ -41,9 +41,8 @@ use core::{
 /// - `T`: Element type. Must implement `Eq + Hash` for most operations.
 ///
 /// - `SH`: Hasher for heap storage. Default: `RandomState` with `std`, otherwise
-///   `foldhash::fast::RandomState`, except on MSP430 where a deterministic FNV-1a
-///   hasher is used. Enable a hasher feature and use its type alias, or specify `SH` and `SI`
-///   explicitly with [`SmallSet::with_hashers`] to choose another hasher.
+///   `foldhash::fast::RandomState`. Enable a hasher feature and use its type alias, or specify `SH`
+///   and `SI` explicitly with [`SmallSet::with_hashers`] to choose another hasher.
 ///
 /// - `SI`: Hasher for inline storage. Default: `DefaultInlineHasher`.
 ///
