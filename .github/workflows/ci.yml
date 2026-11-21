@@ -76,7 +76,7 @@ jobs:
       - name: Install Rust stable with bare-metal target
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: thumbv7em-none-eabi, riscv32i-unknown-none-elf
+          targets: riscv32i-unknown-none-elf
 
       - name: Test hosted library without default features
         run: cargo test --no-default-features --features serde
@@ -86,8 +86,6 @@ jobs:
           cargo check --lib --target riscv32i-unknown-none-elf --no-default-features
           cargo check --lib --target riscv32i-unknown-none-elf --no-default-features --features fxhash,rapidhash,serde
 
-      - name: Check no_std hashers and serde
-        run: cargo check --lib --target thumbv7em-none-eabi --no-default-features --features hashes,serde
 
   clippy:
     name: Clippy

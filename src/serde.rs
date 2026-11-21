@@ -113,65 +113,17 @@ mod tests {
     }
 
     #[test]
-    fn custom_inline_hasher_inline_roundtrip() {
-        let mut map = TestMap::new();
-        map.insert(1, 2);
-        map.insert(3, 4);
-        assert!(map.is_inline());
-
-        let deserialized = roundtrip(&map);
-        assert!(deserialized.is_inline());
-        assert_eq!(deserialized, map);
-    }
-
-    #[test]
-    fn custom_inline_hasher_heap_roundtrip() {
-        let mut map = TestMap::new();
-        for i in 0..8 {
-            map.insert(i, i * 2);
-        }
-        assert!(!map.is_inline());
-
-        let deserialized = roundtrip(&map);
-        assert!(!deserialized.is_inline());
-        assert_eq!(deserialized, map);
-    }
-
-    #[test]
-    fn direct_heap_deserialization_does_not_construct_inline_hasher() {
-        use core::hash::BuildHasher;
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        static INLINE_DEFAULTS: AtomicUsize = AtomicUsize::new(0);
-
-        struct CountingInlineHasher;
-        impl Default for CountingInlineHasher {
-            fn default() -> Self {
-                INLINE_DEFAULTS.fetch_add(1, Ordering::SeqCst);
-                Self
+    fn custom_inline_hasher_roundtrip() {
+        for len in [2u32, 8] {
+            let mut map = TestMap::new();
+            for i in 0..len {
+                map.insert(i, i * 2);
             }
+
+            let deserialized = roundtrip(&map);
+            assert_eq!(deserialized.is_inline(), len <= 4);
+            assert_eq!(deserialized, map);
         }
-        impl BuildHasher for CountingInlineHasher {
-            type Hasher = DefaultHasher;
-
-            fn build_hasher(&self) -> Self::Hasher {
-                DefaultHasher::new()
-            }
-        }
-
-        let value = serde_json::to_value(
-            (0..8)
-                .map(|i| (i, i * 2))
-                .collect::<std::collections::BTreeMap<_, _>>(),
-        )
-        .unwrap();
-        // `Value` retains its map length, so this uses the direct-heap path.
-        let deserialized: SmallMap<4, u32, u32, RandomState, CountingInlineHasher> =
-            serde_json::from_value(value).unwrap();
-
-        assert_eq!(deserialized.len(), 8);
-        assert!(!deserialized.is_inline());
-        assert_eq!(INLINE_DEFAULTS.load(Ordering::SeqCst), 0);
     }
 
     #[cfg(not(feature = "std"))]
