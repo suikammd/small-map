@@ -78,15 +78,19 @@ jobs:
         with:
           targets: thumbv7em-none-eabi, riscv32i-unknown-none-elf
 
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+
       - name: Check minimal library without std
         run: cargo check --lib --target thumbv7em-none-eabi --no-default-features
 
       - name: Test hosted library without default features
         run: cargo test --no-default-features --features serde
 
-      - name: Check default and external custom hashers without std
+      - name: Check no_std consumer feature combinations
+        # default = [] would otherwise be checked a second time.
         run: |
-          cargo check --manifest-path tests/no-std/Cargo.toml --target thumbv7em-none-eabi
+          cargo hack check --manifest-path tests/no-std/Cargo.toml --target thumbv7em-none-eabi --each-feature --exclude-no-default-features
           cargo check --manifest-path tests/no-std/Cargo.toml --target riscv32i-unknown-none-elf
 
       - name: Build bare-metal default-construction link probes
@@ -94,19 +98,8 @@ jobs:
           cargo build --manifest-path tests/no-std/Cargo.toml --target thumbv7em-none-eabi --release
           cargo build --manifest-path tests/no-std/Cargo.toml --target riscv32i-unknown-none-elf --release
 
-      - name: Check no_std hasher aliases
-        run: |
-          for hasher in fxhash rapidhash ahash; do
-            cargo check --manifest-path tests/no-std/Cargo.toml --target thumbv7em-none-eabi --features "$hasher"
-          done
-
-      - name: Check serde with external custom hashers
-        run: cargo check --manifest-path tests/no-std/Cargo.toml --target thumbv7em-none-eabi --features serde
-
-      - name: Check combined no_std hashers and serde
-        run: |
-          cargo check --lib --target thumbv7em-none-eabi --no-default-features --features hashes,serde
-          cargo check --manifest-path tests/no-std/Cargo.toml --target thumbv7em-none-eabi --features ahash,fxhash,rapidhash,serde
+      - name: Check combined library hashers and serde
+        run: cargo check --lib --target thumbv7em-none-eabi --no-default-features --features hashes,serde
 
       - name: Install Rust nightly for MSP430 build-std
         uses: dtolnay/rust-toolchain@master
