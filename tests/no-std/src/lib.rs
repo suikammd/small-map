@@ -30,47 +30,35 @@ impl BuildHasher for TestBuildHasher {
     }
 }
 
-pub type TestMap = SmallMap<2, u32, u32, TestBuildHasher, TestBuildHasher>;
-pub type TestSet = SmallSet<2, u32, TestBuildHasher, TestBuildHasher>;
+pub type TestMap = SmallMap<2, u32, u32, TestBuildHasher, TestBuildHasher, 0>;
+pub type TestSet = SmallSet<2, u32, TestBuildHasher, TestBuildHasher, 0>;
 
-pub fn exercise_default_map() -> SmallMap<2, u32, u32> {
+pub fn exercise_default_map_and_set() -> (SmallMap<2, u32, u32>, SmallSet<2, u32>) {
     let mut map = SmallMap::new();
-    for i in 0..4 {
-        map.insert(i, i * 2);
-    }
-    let _ = map.get(&1);
-    map.remove(&0);
-    map
-}
-
-pub fn exercise_default_set() -> SmallSet<2, u32> {
     let mut set = SmallSet::new();
     for i in 0..4 {
+        map.insert(i, i * 2);
         set.insert(i);
     }
-    let _ = set.contains(&1);
-    set.remove(&0);
-    set
-}
-
-pub fn exercise_map() -> TestMap {
-    let mut map = TestMap::with_hashers(TestBuildHasher, TestBuildHasher);
-    for i in 0..4 {
-        map.insert(i, i * 2);
-    }
-    let _ = map.get(&1);
+    assert_eq!(map.get(&1), Some(&2));
+    assert!(set.contains(&1));
     map.remove(&0);
-    map
+    set.remove(&0);
+    (map, set)
 }
 
-pub fn exercise_set() -> TestSet {
+pub fn exercise_custom_map_and_set() -> (TestMap, TestSet) {
+    let mut map = TestMap::with_hashers(TestBuildHasher, TestBuildHasher);
     let mut set = TestSet::with_hashers(TestBuildHasher, TestBuildHasher);
     for i in 0..4 {
+        map.insert(i, i * 2);
         set.insert(i);
     }
-    let _ = set.contains(&1);
+    assert_eq!(map.get(&1), Some(&2));
+    assert!(set.contains(&1));
+    map.remove(&0);
     set.remove(&0);
-    set
+    (map, set)
 }
 
 #[cfg(feature = "fxhash")]

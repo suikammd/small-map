@@ -81,17 +81,13 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
 
-      - name: Check minimal library without std
-        run: cargo check --lib --target thumbv7em-none-eabi --no-default-features
 
       - name: Test hosted library without default features
         run: cargo test --no-default-features --features serde
 
       - name: Check no_std consumer feature combinations
-        # default = [] would otherwise be checked a second time.
-        run: |
-          cargo hack check --manifest-path tests/no-std/Cargo.toml --target thumbv7em-none-eabi --each-feature --exclude-no-default-features
-          cargo check --manifest-path tests/no-std/Cargo.toml --target riscv32i-unknown-none-elf
+        # Bare-metal release links already cover the empty/default feature set.
+        run: cargo hack check --manifest-path tests/no-std/Cargo.toml --target thumbv7em-none-eabi --each-feature --exclude-no-default-features
 
       - name: Build bare-metal default-construction link probes
         run: |
@@ -100,7 +96,6 @@ jobs:
 
       - name: Check combined library hashers and serde
         run: cargo check --lib --target thumbv7em-none-eabi --no-default-features --features hashes,serde
-
 
   clippy:
     name: Clippy

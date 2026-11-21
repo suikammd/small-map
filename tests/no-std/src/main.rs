@@ -19,10 +19,8 @@ static ALLOCATOR: LinkProbeAllocator = LinkProbeAllocator;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    core::hint::black_box(small_map_no_std_smoke::exercise_default_map());
-    core::hint::black_box(small_map_no_std_smoke::exercise_default_set());
-    core::hint::black_box(small_map_no_std_smoke::exercise_map());
-    core::hint::black_box(small_map_no_std_smoke::exercise_set());
+    core::hint::black_box(small_map_no_std_smoke::exercise_default_map_and_set());
+    core::hint::black_box(small_map_no_std_smoke::exercise_custom_map_and_set());
 
     loop {
         core::hint::spin_loop();
