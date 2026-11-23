@@ -209,7 +209,8 @@ pub enum SmallMap<
     Inline(Inline<N, K, V, SH, SI, LINEAR_THRESHOLD>),
 }
 
-/// The no_std form requires explicit `SH` and `SI`. Keep its variants in sync with the std form.
+/// The no_std form requires explicit `SH` and `SI`.
+// Keep its variants in sync with the std form.
 #[cfg(not(feature = "std"))]
 #[derive(Clone)]
 pub enum SmallMap<

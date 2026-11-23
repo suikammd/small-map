@@ -150,7 +150,8 @@ pub struct SmallSet<
     pub(crate) map: SmallMap<N, T, (), SH, SI, LINEAR_THRESHOLD>,
 }
 
-/// The no_std form requires explicit `SH` and `SI`. Keep its storage in sync with the std form.
+/// The no_std form requires explicit `SH` and `SI`.
+// Keep its storage in sync with the std form.
 #[cfg(not(feature = "std"))]
 #[derive(Clone)]
 pub struct SmallSet<
