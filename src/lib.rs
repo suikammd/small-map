@@ -24,11 +24,9 @@
 //!
 //! # `no_std`
 //!
-//! Disable default features for `no_std` support. Collections use
-//! `foldhash::fast::RandomState` by default. Enable an external hasher feature to use its type
-//! alias, or provide heap and
-//! inline hashers explicitly with [`SmallMap::with_hashers`]. Inline storage is allocation-free;
-//! spilling beyond the inline capacity requires `alloc`.
+//! Without `std`, heap and inline hashing default to foldhash. Enable an external hasher feature
+//! for its type alias, or provide custom heap and inline hashers with [`SmallMap::with_hashers`].
+//! Inline storage does not allocate; spilling beyond the inline capacity requires `alloc`.
 
 use core::{
     fmt::{self, Debug},
@@ -38,9 +36,6 @@ use core::{
     ops::Index,
 };
 
-// Mark the direct no_std dependency as used during std-only dependency lint builds.
-#[cfg(feature = "std")]
-use foldhash as _;
 use hashbrown::HashMap;
 use inline::Inline;
 

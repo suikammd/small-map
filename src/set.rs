@@ -255,13 +255,18 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// ```
     /// use std::collections::hash_map::RandomState;
     ///
+    /// #[cfg(feature = "fxhash")]
+    /// use rustc_hash::FxBuildHasher;
     /// use small_map::SmallSet;
     ///
-    /// let heap_hasher = RandomState::default();
-    /// let inline_hasher = RandomState::default();
-    /// let mut set =
-    ///     SmallSet::<8, _, RandomState, RandomState>::with_hashers(heap_hasher, inline_hasher);
-    /// set.insert(1);
+    /// #[cfg(feature = "fxhash")]
+    /// {
+    ///     let heap_hasher = RandomState::default();
+    ///     let inline_hasher = FxBuildHasher::default();
+    ///     let mut set =
+    ///         SmallSet::<8, _, RandomState, FxBuildHasher>::with_hashers(heap_hasher, inline_hasher);
+    ///     set.insert(1);
+    /// }
     /// ```
     #[inline]
     pub fn with_hashers(heap_hasher: SH, inline_hasher: SI) -> Self {

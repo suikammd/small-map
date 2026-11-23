@@ -126,7 +126,22 @@ mod tests {
         }
     }
 
-    #[cfg(not(feature = "std"))]
+    #[test]
+    fn direct_heap_with_known_size_hint() {
+        let items = (0u32..8).map(|i| (i, i * 2)).collect::<Vec<_>>();
+        use serde::{de::value::MapDeserializer, Deserialize};
+
+        let deserializer: MapDeserializer<'_, _, serde_json::Error> =
+            MapDeserializer::new(items.iter().cloned());
+        let deserialized: SmallMap<4, u32, u32> = SmallMap::deserialize(deserializer).unwrap();
+
+        assert_eq!(deserialized.len(), 8);
+        assert!(!deserialized.is_inline());
+        for (key, value) in items {
+            assert_eq!(deserialized.get(&key), Some(&value));
+        }
+    }
+
     #[test]
     fn default_hashers_inline_and_heap_roundtrip() {
         for len in [2u32, 8] {
