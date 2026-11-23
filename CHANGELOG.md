@@ -4,54 +4,52 @@
 
 ### no_std and alloc support
 
-SmallMap can now be built without std. Inline storage remains allocation-free;
-spilling beyond the inline capacity uses `hashbrown::HashMap` and requires the
-final application to provide a global allocator. This release also includes the
-previously introduced SmallSet and the retain panic-safety fix (#7, #10).
+SmallMap can now be built without std using an indexmap-style explicit-hasher
+configuration. Inline storage remains allocation-free; spilling beyond the
+inline capacity uses `hashbrown::HashMap` and requires the final application to
+provide a global allocator. This release also includes the previously introduced
+SmallSet and the retain panic-safety fix (#7, #10).
 
-### Breaking: default heap and inline hasher types
+### Breaking: explicit hashers without std
 
-Normal std configuration is unchanged. When std is disabled, the default heap
-hasher changes from `std::collections::hash_map::RandomState` to
-`foldhash::fast::RandomState`. Without any external hasher feature, **the default
-inline hasher also changes** from std's `RandomState` to foldhash's.
+The default std configuration retains `std::collections::hash_map::RandomState`
+as the heap hasher and preserves the existing inline-hasher selection order.
+Other hasher features do not replace std's heap-hasher default.
 
-`SH` and `SI` are separate choices: this does not mean heap and inline storage
-have swapped roles or that all hasher backends obtain std's security properties.
-`ahash` and other hasher features can still supply their own builder types, while
-`RandomState` from std remains a concrete type distinct from foldhash's.
+With std disabled, `SmallMap` and `SmallSet` require explicit heap (`SH`) and
+inline (`SI`) hasher types. There is no implicit std or foldhash fallback. Use a
+supported external hasher's `SmallMap`/`SmallSet` alias, or supply builders with
+`with_hashers`/`with_capacity_and_hashers`. Heap and inline storage remain
+separate choices, and each selected hasher has its own security and target
+requirements.
 
 ### Migration
 
-If you use Rust std, explicitly enable std (or retain it in the default features).
-Existing code using std's `RandomState` as an explicit heap-hasher type continues
-to work, including that constructor with `std` and `ahash` simultaneously.
-Disabling std implies choosing the non-std default; do not translate Cargo using
-`default-features = false` into an implicit std heap default.
+If you use Rust std, retain the default features or explicitly enable `std` with
+`default-features = false`. Existing std default declarations then retain their
+usual concrete types. Code explicitly using std's `RandomState` can continue to
+do so with that feature enabled.
 
-For genuinely no_std targets, either use `small-map` with `default-features = false`
-and accept the foldhash default, or choose a supported external hasher. Caller-side
-`SH`/`SI` generic parameters and `with_hashers`/`with_capacity_and_hashers` allow
-separate selection of heap and inline hashers.
+For genuinely no_std targets, choose an external hasher supported by your target
+and use its alias, or explicitly specify `SH` and `SI`. On std-capable targets
+where small-map's `std` feature is disabled, callers using std's `RandomState`
+must also spell out the inline-builder type, for example
+`SmallSet<N, T, RandomState, RandomState>`.
 
-On std-supported targets, code that explicitly wants std `RandomState` should
-specify it as the heap hasher with a fully qualified type instead of relying on
-feature-dependent inference. Library crate `std` availability and the concrete
-heap-hasher type are distinct from optional hasher features.
-
-The no_std default is not a substitute for std's HashDoS resistance. foldhash is
-non-cryptographic and may seed differently across targets and atomic capabilities;
-choose appropriate hashers for adversarial inputs and platform support.
+Cargo resolves one small-map configuration per dependency graph. Enabling `std`
+makes its usual defaults available throughout that graph; no_std callers must
+therefore choose their hashers explicitly rather than relying on an implicit
+feature-specific heap type.
 
 ### Serde and generic hashing
 
-Serialization/deserialization now covers custom inline hashers and
+Serialization/deserialization now handles custom inline hashers and
 `LINEAR_THRESHOLD`, including configurations such as `RapidSmallMap`. These are
-existing SmallMap parameters, not newly added storage concepts.
+existing SmallMap parameters, not newly added storage concepts. Tests cover both
+inline and direct heap deserialization with a size-hint-capable input.
 
 ### Compatibility checks
 
-CI covers std `RandomState` preservation, foldhash-backed default construction,
-serde inline and heap paths, and riscv32i nil/no_std builds subject to each
-hasher's required platform capabilities. Optional dependencies retain their own
-platform-specific requirements rather than providing a blanket support guarantee.
+CI covers std default construction, explicit-hasher no_std configurations,
+serde inline and heap paths, and riscv32i no_std builds with supported external
+hashers. Optional dependencies retain their own platform requirements.

@@ -11,6 +11,7 @@
 //! # Examples
 //!
 //! ```
+//! # #[cfg(feature = "std")] {
 //! use small_map::SmallMap;
 //!
 //! let mut map: SmallMap<8, &str, i32> = SmallMap::new();
@@ -20,13 +21,24 @@
 //! assert_eq!(map.get(&"a"), Some(&1));
 //! assert!(map.contains_key(&"b"));
 //! assert!(map.is_inline()); // Still stored inline
+//! # }
 //! ```
 //!
 //! # `no_std`
 //!
-//! Without `std`, heap and inline hashing default to foldhash. Enable an external hasher feature
-//! for its type alias, or provide custom heap and inline hashers with [`SmallMap::with_hashers`].
+//! With `std`, heap hashing defaults to `std::collections::hash_map::RandomState`.
+//! Without `std`, neither hasher has an implicit default: specify both `SH` and `SI`, or use a
+//! supported external hasher's type alias. Supply custom hashers with [`SmallMap::with_hashers`].
 //! Inline storage does not allocate; spilling beyond the inline capacity requires `alloc`.
+//!
+//! ```
+//! #[cfg(feature = "fxhash")]
+//! {
+//!     let mut map = small_map::FxSmallMap::<8, u32, u32>::new();
+//!     map.insert(1, 2);
+//!     assert_eq!(map.get(&1), Some(&2));
+//! }
+//! ```
 
 use core::{
     fmt::{self, Debug},
@@ -41,8 +53,6 @@ use inline::Inline;
 
 #[cfg(feature = "std")]
 type DefaultHeapHasher = std::collections::hash_map::RandomState;
-#[cfg(not(feature = "std"))]
-type DefaultHeapHasher = foldhash::fast::RandomState;
 
 #[macro_use]
 mod macros;
@@ -72,14 +82,15 @@ pub type RapidSmallMap<const N: usize, K, V> =
 ///
 /// Requires the `fxhash` feature.
 #[cfg(feature = "fxhash")]
-pub type FxSmallMap<const N: usize, K, V> = SmallMap<N, K, V, rustc_hash::FxBuildHasher>;
+pub type FxSmallMap<const N: usize, K, V> =
+    SmallMap<N, K, V, rustc_hash::FxBuildHasher, DefaultInlineHasher>;
 
 /// Type alias for [`SmallMap`] using [`ahash::AHasher`] as the heap hasher.
 ///
 /// Requires the `ahash` feature.
 #[cfg(feature = "ahash")]
 pub type ASmallMap<const N: usize, K, V> =
-    SmallMap<N, K, V, core::hash::BuildHasherDefault<ahash::AHasher>>;
+    SmallMap<N, K, V, core::hash::BuildHasherDefault<ahash::AHasher>, DefaultInlineHasher>;
 
 /// Type alias for [`SmallSet`] using [`rapidhash`](https://docs.rs/rapidhash) as the heap hasher.
 ///
@@ -94,14 +105,15 @@ pub type RapidSmallSet<const N: usize, T> =
 ///
 /// Requires the `fxhash` feature.
 #[cfg(feature = "fxhash")]
-pub type FxSmallSet<const N: usize, T> = SmallSet<N, T, rustc_hash::FxBuildHasher>;
+pub type FxSmallSet<const N: usize, T> =
+    SmallSet<N, T, rustc_hash::FxBuildHasher, DefaultInlineHasher>;
 
 /// Type alias for [`SmallSet`] using [`ahash::AHasher`] as the heap hasher.
 ///
 /// Requires the `ahash` feature.
 #[cfg(feature = "ahash")]
 pub type ASmallSet<const N: usize, T> =
-    SmallSet<N, T, core::hash::BuildHasherDefault<ahash::AHasher>>;
+    SmallSet<N, T, core::hash::BuildHasherDefault<ahash::AHasher>, DefaultInlineHasher>;
 
 #[cfg(feature = "rapidhash")]
 type DefaultInlineHasher = rapidhash::fast::RandomState;
@@ -110,6 +122,7 @@ type DefaultInlineHasher = rustc_hash::FxBuildHasher;
 #[cfg(all(not(feature = "rapidhash"), not(feature = "fxhash"), feature = "ahash"))]
 type DefaultInlineHasher = core::hash::BuildHasherDefault<ahash::AHasher>;
 #[cfg(all(
+    feature = "std",
     not(feature = "rapidhash"),
     not(feature = "fxhash"),
     not(feature = "ahash")
@@ -134,20 +147,15 @@ pub const DEFAULT_LINEAR_THRESHOLD: usize = raw::Group::WIDTH;
 ///
 /// - `V`: Value type.
 ///
-/// - `SH`: Hasher for heap storage. Default: `RandomState` with `std`, otherwise
-///   `foldhash::fast::RandomState`. This hasher is used when the map spills to heap. Note: The
-///   standard library's `RandomState` provides HashDoS resistance but is not the fastest option.
-///   Consider your security vs performance requirements - for non-adversarial workloads, faster
-///   alternatives like `rapidhash` or `fxhash` can improve performance significantly (though they
-///   are not cryptographically secure). Without `std`, foldhash does not provide the same HashDoS
-///   resistance as `RandomState`. Enable a hasher feature and use its type alias, or specify `SH`
-///   and `SI` explicitly with [`SmallMap::with_hashers`] to choose different hashers.
+/// - `SH`: Hasher for heap storage. Defaults to `std::collections::hash_map::RandomState` with
+///   `std`. Without `std`, it has no default: specify `SH` and `SI`, or use an external hasher's
+///   type alias. Custom hashers can be supplied with [`SmallMap::with_hashers`]. `RandomState`
+///   provides HashDoS resistance but is not the fastest option. Faster alternatives such as
+///   `rapidhash` or `fxhash` have different security and platform requirements.
 ///
-/// - `SI`: Hasher for inline storage. Default: `DefaultInlineHasher` (rapidhash if available,
-///   otherwise fxhash, ahash, or the default heap hasher). This hasher is used for SIMD-accelerated
-///   lookups in inline mode. Since inline storage only handles a small number of elements, HashDoS
-///   resistance is generally not a concern here - performance is the priority. We recommend using
-///   the default value and enabling the `rapidhash` or `fxhash` feature for best performance.
+/// - `SI`: Hasher for inline storage in SIMD-accelerated lookups. With `std`, it defaults to
+///   rapidhash if available, otherwise fxhash, ahash, or std's `RandomState`. Without `std`, both
+///   `SH` and `SI` must be explicit unless supplied by an external hasher's type alias.
 ///
 /// - `LINEAR_THRESHOLD`: Threshold for switching between linear and SIMD search. Default:
 ///   [`DEFAULT_LINEAR_THRESHOLD`] (equal to SIMD group width, typically 16 on SSE2). When `N <
@@ -170,6 +178,7 @@ pub const DEFAULT_LINEAR_THRESHOLD: usize = raw::Group::WIDTH;
 /// # Examples
 ///
 /// ```
+/// # #[cfg(feature = "std")] {
 /// use small_map::SmallMap;
 ///
 /// // Basic usage with defaults
@@ -182,7 +191,9 @@ pub const DEFAULT_LINEAR_THRESHOLD: usize = raw::Group::WIDTH;
 ///
 /// // Custom linear threshold (force SIMD search even for small maps)
 /// let mut map: SmallMap<8, &str, i32, RandomState, RandomState, 4> = SmallMap::new();
+/// # }
 /// ```
+#[cfg(feature = "std")]
 #[derive(Clone)]
 pub enum SmallMap<
     const N: usize,
@@ -190,6 +201,22 @@ pub enum SmallMap<
     V,
     SH = DefaultHeapHasher,
     SI = DefaultInlineHasher,
+    const LINEAR_THRESHOLD: usize = DEFAULT_LINEAR_THRESHOLD,
+> {
+    /// Heap-allocated storage using `hashbrown::HashMap`.
+    Heap(HashMap<K, V, SH>),
+    /// Inline storage with SIMD-accelerated lookups.
+    Inline(Inline<N, K, V, SH, SI, LINEAR_THRESHOLD>),
+}
+
+#[cfg(not(feature = "std"))]
+#[derive(Clone)]
+pub enum SmallMap<
+    const N: usize,
+    K,
+    V,
+    SH,
+    SI,
     const LINEAR_THRESHOLD: usize = DEFAULT_LINEAR_THRESHOLD,
 > {
     /// Heap-allocated storage using `hashbrown::HashMap`.
@@ -217,6 +244,7 @@ impl<const N: usize, K, V, SH: Default, SI: Default, const LINEAR_THRESHOLD: usi
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use std::collections::hash_map::RandomState;
     ///
     /// use small_map::SmallMap;
@@ -227,6 +255,7 @@ impl<const N: usize, K, V, SH: Default, SI: Default, const LINEAR_THRESHOLD: usi
     /// assert_eq!(map.capacity(), 8);
     /// let map: SmallMap<8, u32, String, RandomState> = SmallMap::default();
     /// assert_eq!(map.capacity(), 8);
+    /// # }
     /// ```
     #[inline]
     fn default() -> Self {
@@ -271,6 +300,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use std::hash::{BuildHasherDefault, DefaultHasher};
     ///
     /// use small_map::SmallMap;
@@ -278,6 +308,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// let s = BuildHasherDefault::<DefaultHasher>::default();
     /// let mut map = SmallMap::<8, _, _, _>::with_hasher(s);
     /// map.insert(1, 2);
+    /// # }
     /// ```
     #[inline]
     pub fn with_hasher(hash_builder: SH) -> Self
@@ -291,6 +322,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// keys. It will be allocated with the given allocator.
     /// # Examples
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use std::collections::hash_map::RandomState;
     ///
     /// use small_map::SmallMap;
@@ -298,6 +330,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// let inline_hasher = RandomState::new();
     /// let mut map = SmallMap::<8, _, _, _, _>::with_hashers(heap_hasher, inline_hasher);
     /// map.insert(1, 2);
+    /// # }
     /// ```
     #[inline]
     pub const fn with_hashers(heap_hasher: SH, inline_hasher: SI) -> Self {
@@ -326,6 +359,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     ///
     /// # Examples
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use std::collections::hash_map::RandomState;
     ///
     /// use small_map::SmallMap;
@@ -334,6 +368,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// let mut map =
     ///     SmallMap::<8, _, _, _, _>::with_capacity_and_hashers(16, heap_hasher, inline_hasher);
     /// map.insert(1, 2);
+    /// # }
     /// ```
     #[inline]
     pub fn with_capacity_and_hashers(capacity: usize, heap_hasher: SH, inline_hasher: SI) -> Self {
@@ -358,6 +393,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let map: SmallMap<8, i32, i32> = SmallMap::with_capacity(100);
@@ -367,6 +403,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// let map: SmallMap<8, i32, i32> = SmallMap::with_capacity(2);
     /// assert_eq!(map.len(), 0);
     /// assert!(map.capacity() >= 8);
+    /// # }
     /// ```
     #[inline]
     pub fn capacity(&self) -> usize {
@@ -389,12 +426,14 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, i32, &str> = SmallMap::new();
     /// map.insert(1, "a");
     /// assert_eq!(map.get(&1), Some(&"a"));
     /// assert_eq!(map.get(&2), None);
+    /// # }
     /// ```
     #[inline]
     pub fn get<Q>(&self, k: &Q) -> Option<&V>
@@ -412,6 +451,7 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, i32, i32> = SmallMap::new();
@@ -420,6 +460,7 @@ where
     ///     *v = 20;
     /// }
     /// assert_eq!(map.get(&1), Some(&20));
+    /// # }
     /// ```
     #[inline]
     pub fn get_mut<Q>(&mut self, k: &Q) -> Option<&mut V>
@@ -437,12 +478,14 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, i32, &str> = SmallMap::new();
     /// map.insert(1, "a");
     /// assert_eq!(map.get_key_value(&1), Some((&1, &"a")));
     /// assert_eq!(map.get_key_value(&2), None);
+    /// # }
     /// ```
     #[inline]
     pub fn get_key_value<Q>(&self, k: &Q) -> Option<(&K, &V)>
@@ -460,12 +503,14 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, i32, &str> = SmallMap::new();
     /// map.insert(1, "a");
     /// assert!(map.contains_key(&1));
     /// assert!(!map.contains_key(&2));
+    /// # }
     /// ```
     #[inline]
     pub fn contains_key<Q>(&self, k: &Q) -> bool
@@ -483,12 +528,14 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, i32, &str> = SmallMap::new();
     /// assert_eq!(map.insert(1, "a"), None);
     /// assert_eq!(map.insert(1, "b"), Some("a"));
     /// assert_eq!(map.get(&1), Some(&"b"));
+    /// # }
     /// ```
     #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
@@ -517,12 +564,14 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, i32, &str> = SmallMap::new();
     /// // SAFETY: We know the key doesn't exist because the map is empty.
     /// unsafe { map.insert_unique_unchecked(1, "a") };
     /// assert_eq!(map.get(&1), Some(&"a"));
+    /// # }
     /// ```
     #[inline]
     pub unsafe fn insert_unique_unchecked(&mut self, key: K, value: V) -> (&K, &mut V) {
@@ -569,12 +618,14 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, i32, &str> = SmallMap::new();
     /// map.insert(1, "a");
     /// assert_eq!(map.remove(&1), Some("a"));
     /// assert_eq!(map.remove(&1), None);
+    /// # }
     /// ```
     #[inline]
     pub fn remove<Q>(&mut self, k: &Q) -> Option<V>
@@ -594,12 +645,14 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, i32, &str> = SmallMap::new();
     /// map.insert(1, "a");
     /// assert_eq!(map.remove_entry(&1), Some((1, "a")));
     /// assert_eq!(map.remove_entry(&1), None);
+    /// # }
     /// ```
     #[inline]
     pub fn remove_entry<Q>(&mut self, k: &Q) -> Option<(K, V)>
@@ -619,6 +672,7 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, i32, i32> = SmallMap::new();
@@ -627,6 +681,7 @@ where
     /// }
     /// map.retain(|&k, _| k % 2 == 0);
     /// assert_eq!(map.len(), 4);
+    /// # }
     /// ```
     #[inline]
     pub fn retain<F>(&mut self, mut f: F)
@@ -650,6 +705,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, i32, ()> = SmallMap::new();
@@ -662,6 +718,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// map.clear();
     /// assert!(!map.is_inline());
     /// assert_eq!(map.len(), 0);
+    /// # }
     /// ```
     #[inline]
     pub fn clear(&mut self) {
@@ -937,12 +994,14 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, i32, i32> = SmallMap::new();
     /// assert_eq!(map.len(), 0);
     /// map.insert(1, 10);
     /// assert_eq!(map.len(), 1);
+    /// # }
     /// ```
     #[inline]
     pub fn len(&self) -> usize {
@@ -957,12 +1016,14 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, i32, i32> = SmallMap::new();
     /// assert!(map.is_empty());
     /// map.insert(1, 10);
     /// assert!(!map.is_empty());
+    /// # }
     /// ```
     #[inline]
     pub fn is_empty(&self) -> bool {
@@ -977,6 +1038,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, &str, i32> = SmallMap::new();
@@ -986,6 +1048,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// for (key, val) in map.iter() {
     ///     println!("key: {key} val: {val}");
     /// }
+    /// # }
     /// ```
     #[inline]
     pub fn iter(&self) -> Iter<'_, N, K, V> {
@@ -1000,6 +1063,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, &str, i32> = SmallMap::new();
@@ -1009,6 +1073,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// for key in map.keys() {
     ///     println!("{key}");
     /// }
+    /// # }
     /// ```
     #[inline]
     pub fn keys(&self) -> Keys<'_, N, K, V> {
@@ -1020,6 +1085,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, &str, i32> = SmallMap::new();
@@ -1029,6 +1095,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// for val in map.values() {
     ///     println!("{val}");
     /// }
+    /// # }
     /// ```
     #[inline]
     pub fn values(&self) -> Values<'_, N, K, V> {
@@ -1040,6 +1107,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, &str, i32> = SmallMap::new();
@@ -1047,6 +1115,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// map.insert("b", 2);
     ///
     /// let keys: Vec<_> = map.into_keys().collect();
+    /// # }
     /// ```
     #[inline]
     pub fn into_keys(self) -> IntoKeys<N, K, V> {
@@ -1060,6 +1129,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallMap;
     ///
     /// let mut map: SmallMap<8, &str, i32> = SmallMap::new();
@@ -1067,6 +1137,7 @@ impl<const N: usize, K, V, SH, SI, const LINEAR_THRESHOLD: usize>
     /// map.insert("b", 2);
     ///
     /// let values: Vec<_> = map.into_values().collect();
+    /// # }
     /// ```
     #[inline]
     pub fn into_values(self) -> IntoValues<N, K, V> {
@@ -1164,11 +1235,27 @@ mod tests {
     use hashbrown::HashMap;
     use rand::Rng;
 
-    use crate::SmallMap;
+    use crate::{SmallMap, DEFAULT_LINEAR_THRESHOLD};
+
+    type TestSmallMap<
+        const N: usize,
+        K,
+        V,
+        SH = RandomState,
+        SI = RandomState,
+        const LINEAR_THRESHOLD: usize = DEFAULT_LINEAR_THRESHOLD,
+    > = SmallMap<N, K, V, SH, SI, LINEAR_THRESHOLD>;
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn std_default_heap_hasher_type() {
+        let map = SmallMap::<8, i32, i32>::new();
+        let _: &SmallMap<8, i32, i32, RandomState> = &map;
+    }
 
     #[test]
     fn basic_op() {
-        let mut map = SmallMap::<16, String, String>::default();
+        let mut map = TestSmallMap::<16, String, String>::default();
         map.insert("hello".to_string(), "world".to_string());
         assert_eq!(map.len(), 1);
         assert_eq!(map.get("hello").unwrap(), "world");
@@ -1197,7 +1284,7 @@ mod tests {
 
     #[test]
     fn multi_group_with_padding() {
-        let mut map = SmallMap::<33, i32, i32>::default();
+        let mut map = TestSmallMap::<33, i32, i32>::default();
         for i in 0..33 {
             map.insert(i, i * 2);
         }
@@ -1217,7 +1304,7 @@ mod tests {
 
     #[test]
     fn clear_keep_state() {
-        let mut map = SmallMap::<16, i32, i32>::default();
+        let mut map = TestSmallMap::<16, i32, i32>::default();
         for i in 0..32 {
             map.insert(i, i * 2);
         }
@@ -1228,7 +1315,7 @@ mod tests {
 
     #[test]
     fn fuzzing() {
-        let mut smallmap = SmallMap::<16, i32, i32>::default();
+        let mut smallmap = TestSmallMap::<16, i32, i32>::default();
         let mut hashmap = HashMap::<i32, i32, RandomState>::default();
         for _ in 0..1000000 {
             let op = Operation::random();
@@ -1257,7 +1344,7 @@ mod tests {
 
             fn exec<const N: usize, S1: core::hash::BuildHasher, S2: core::hash::BuildHasher>(
                 self,
-                sm: &mut SmallMap<N, i32, i32, S1>,
+                sm: &mut TestSmallMap<N, i32, i32, S1>,
                 hm: &mut HashMap<i32, i32, S2>,
             ) {
                 match self {
@@ -1294,7 +1381,7 @@ mod tests {
         let (probe1, checker1) = drop_checker();
         let (probe2, checker2) = drop_checker();
         let (probe3, checker3) = drop_checker();
-        let mut map = SmallMap::<8, _, _>::default();
+        let mut map = TestSmallMap::<8, _, _>::default();
         map.insert(1, probe1);
         map.insert(2, probe2);
         map.insert(3, probe3);
@@ -1334,7 +1421,7 @@ mod tests {
 
     #[test]
     fn clone_after_delete() {
-        let mut map: SmallMap<8, i32, String> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, String> = TestSmallMap::new();
 
         map.insert(1, "one".to_string());
         map.insert(2, "two".to_string());
@@ -1362,7 +1449,7 @@ mod tests {
 
     #[test]
     fn clone_after_multiple_deletes() {
-        let mut map: SmallMap<16, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<16, i32, i32> = TestSmallMap::new();
 
         for i in 0..10 {
             map.insert(i, i * 100);
@@ -1391,7 +1478,7 @@ mod tests {
 
     #[test]
     fn insert_into_cloned_after_delete() {
-        let mut map: SmallMap<8, i32, String> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, String> = TestSmallMap::new();
 
         map.insert(1, "one".to_string());
         map.insert(2, "two".to_string());
@@ -1411,7 +1498,7 @@ mod tests {
 
     #[test]
     fn into_iter_cloned_after_delete() {
-        let mut map: SmallMap<8, i32, String> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, String> = TestSmallMap::new();
 
         map.insert(1, "one".to_string());
         map.insert(2, "two".to_string());
@@ -1428,7 +1515,7 @@ mod tests {
     #[test]
     fn clone_compaction() {
         // Test that clone compacts the data array
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
 
         // Fill with gaps: insert 0-7, then delete evens
         for i in 0..8 {
@@ -1456,7 +1543,7 @@ mod tests {
 
     #[test]
     fn clone_empty_after_delete_all() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
 
         map.insert(1, 10);
         map.insert(2, 20);
@@ -1477,7 +1564,7 @@ mod tests {
 
     #[test]
     fn contains_key_test() {
-        let mut map: SmallMap<8, i32, &str> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, &str> = TestSmallMap::new();
         map.insert(1, "a");
         map.insert(2, "b");
 
@@ -1491,7 +1578,7 @@ mod tests {
 
     #[test]
     fn keys_values_test() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
         for i in 0..5 {
             map.insert(i, i * 10);
         }
@@ -1511,7 +1598,7 @@ mod tests {
 
     #[test]
     fn into_keys_values_test() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
         for i in 0..5 {
             map.insert(i, i * 10);
         }
@@ -1525,7 +1612,7 @@ mod tests {
 
     #[test]
     fn retain_test() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
         for i in 0..8 {
             map.insert(i, i * 10);
         }
@@ -1543,8 +1630,8 @@ mod tests {
 
     #[test]
     fn partial_eq_test() {
-        let mut map1: SmallMap<8, i32, i32> = SmallMap::new();
-        let mut map2: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map1: TestSmallMap<8, i32, i32> = TestSmallMap::new();
+        let mut map2: TestSmallMap<8, i32, i32> = TestSmallMap::new();
 
         map1.insert(1, 10);
         map1.insert(2, 20);
@@ -1560,7 +1647,7 @@ mod tests {
 
     #[test]
     fn index_test() {
-        let mut map: SmallMap<8, i32, &str> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, &str> = TestSmallMap::new();
         map.insert(1, "a");
         map.insert(2, "b");
 
@@ -1571,13 +1658,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "no entry found for key")]
     fn index_panic_test() {
-        let map: SmallMap<8, i32, &str> = SmallMap::new();
+        let map: TestSmallMap<8, i32, &str> = TestSmallMap::new();
         let _ = map[&1];
     }
 
     #[test]
     fn extend_test() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
         map.insert(1, 10);
 
         map.extend([(2, 20), (3, 30)]);
@@ -1588,7 +1675,7 @@ mod tests {
 
     #[test]
     fn from_iterator_test() {
-        let map: SmallMap<8, i32, i32> = [(1, 10), (2, 20), (3, 30)].into_iter().collect();
+        let map: TestSmallMap<8, i32, i32> = [(1, 10), (2, 20), (3, 30)].into_iter().collect();
         assert_eq!(map.len(), 3);
         assert_eq!(map.get(&1), Some(&10));
         assert_eq!(map.get(&2), Some(&20));
@@ -1597,7 +1684,7 @@ mod tests {
 
     #[test]
     fn retain_heap_test() {
-        let mut map: SmallMap<4, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<4, i32, i32> = TestSmallMap::new();
         for i in 0..10 {
             map.insert(i, i * 10);
         }
@@ -1609,7 +1696,7 @@ mod tests {
 
     #[test]
     fn insert_unique_unchecked_test() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
 
         // Insert using unsafe method
         unsafe {
@@ -1626,7 +1713,7 @@ mod tests {
 
     #[test]
     fn insert_unique_unchecked_spill_test() {
-        let mut map: SmallMap<4, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<4, i32, i32> = TestSmallMap::new();
 
         // Fill inline storage
         for i in 0..4 {
@@ -1646,7 +1733,7 @@ mod tests {
 
     #[test]
     fn single_element_operations() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
 
         // Insert single
         map.insert(42, 420);
@@ -1669,7 +1756,7 @@ mod tests {
 
     #[test]
     fn min_capacity_n1() {
-        let mut map: SmallMap<1, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<1, i32, i32> = TestSmallMap::new();
 
         map.insert(1, 10);
         assert_eq!(map.len(), 1);
@@ -1688,7 +1775,7 @@ mod tests {
     fn linear_search_threshold() {
         // Test with N <= Group::WIDTH (16 on SSE2, 8 on NEON)
         // This should use linear search
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
 
         for i in 0..8 {
             map.insert(i, i * 10);
@@ -1707,7 +1794,7 @@ mod tests {
     #[test]
     fn simd_search_path() {
         // Test with N > Group::WIDTH to trigger SIMD path
-        let mut map: SmallMap<32, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<32, i32, i32> = TestSmallMap::new();
 
         for i in 0..32 {
             map.insert(i, i * 10);
@@ -1724,7 +1811,7 @@ mod tests {
 
     #[test]
     fn iterator_clone() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
         for i in 0..5 {
             map.insert(i, i * 10);
         }
@@ -1740,7 +1827,7 @@ mod tests {
 
     #[test]
     fn get_key_value_test() {
-        let mut map: SmallMap<8, String, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, String, i32> = TestSmallMap::new();
         map.insert("hello".to_string(), 42);
 
         let (k, v) = map.get_key_value("hello").unwrap();
@@ -1752,7 +1839,7 @@ mod tests {
 
     #[test]
     fn get_mut_modify() {
-        let mut map: SmallMap<8, i32, Vec<i32>> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, Vec<i32>> = TestSmallMap::new();
         map.insert(1, vec![1, 2, 3]);
 
         if let Some(v) = map.get_mut(&1) {
@@ -1765,7 +1852,7 @@ mod tests {
 
     #[test]
     fn retain_all() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
         for i in 0..5 {
             map.insert(i, i);
         }
@@ -1776,7 +1863,7 @@ mod tests {
 
     #[test]
     fn retain_none() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
         for i in 0..5 {
             map.insert(i, i);
         }
@@ -1788,7 +1875,7 @@ mod tests {
 
     #[test]
     fn retain_modify_value() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
         for i in 0..5 {
             map.insert(i, i);
         }
@@ -1806,7 +1893,7 @@ mod tests {
     #[test]
     fn swap_delete_order_preservation() {
         // Test that swap-delete doesn't break iteration
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
         for i in 0..5 {
             map.insert(i, i * 10);
         }
@@ -1827,7 +1914,7 @@ mod tests {
 
     #[test]
     fn repeated_insert_remove() {
-        let mut map: SmallMap<4, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<4, i32, i32> = TestSmallMap::new();
 
         for _ in 0..100 {
             map.insert(1, 10);
@@ -1848,7 +1935,7 @@ mod tests {
 
     #[test]
     fn remove_nonexistent() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
         map.insert(1, 10);
 
         assert_eq!(map.remove(&999), None);
@@ -1858,7 +1945,7 @@ mod tests {
 
     #[test]
     fn capacity_boundary() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
 
         // Fill to capacity
         for i in 0..8 {
@@ -1875,21 +1962,21 @@ mod tests {
 
     #[test]
     fn with_capacity_inline() {
-        let map: SmallMap<16, i32, i32> = SmallMap::with_capacity(8);
+        let map: TestSmallMap<16, i32, i32> = TestSmallMap::with_capacity(8);
         assert!(map.is_inline());
         assert_eq!(map.capacity(), 16);
     }
 
     #[test]
     fn with_capacity_heap() {
-        let map: SmallMap<8, i32, i32> = SmallMap::with_capacity(100);
+        let map: TestSmallMap<8, i32, i32> = TestSmallMap::with_capacity(100);
         assert!(!map.is_inline());
         assert!(map.capacity() >= 100);
     }
 
     #[test]
     fn empty_map_operations() {
-        let map: SmallMap<8, i32, i32> = SmallMap::new();
+        let map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
 
         assert!(map.is_empty());
         assert_eq!(map.len(), 0);
@@ -1902,7 +1989,7 @@ mod tests {
 
     #[test]
     fn string_keys() {
-        let mut map: SmallMap<8, String, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, String, i32> = TestSmallMap::new();
 
         map.insert("alpha".to_string(), 1);
         map.insert("beta".to_string(), 2);
@@ -1920,7 +2007,7 @@ mod tests {
 
     #[test]
     fn update_existing_key() {
-        let mut map: SmallMap<8, i32, String> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, String> = TestSmallMap::new();
 
         map.insert(1, "first".to_string());
         assert_eq!(
@@ -1933,7 +2020,7 @@ mod tests {
 
     #[test]
     fn large_n_inline() {
-        let mut map: SmallMap<256, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<256, i32, i32> = TestSmallMap::new();
 
         for i in 0..256 {
             map.insert(i, i * 2);
@@ -1949,7 +2036,7 @@ mod tests {
 
     #[test]
     fn iter_after_partial_remove() {
-        let mut map: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, i32> = TestSmallMap::new();
         for i in 0..8 {
             map.insert(i, i);
         }
@@ -1984,7 +2071,7 @@ mod tests {
 
         DROP_COUNT.store(0, Ordering::SeqCst);
 
-        let mut map: SmallMap<8, i32, DropCounter> = SmallMap::new();
+        let mut map: TestSmallMap<8, i32, DropCounter> = TestSmallMap::new();
         for i in 0..5 {
             map.insert(i, DropCounter(i));
         }
@@ -1999,19 +2086,20 @@ mod tests {
         assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 5);
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn default_hasher_types() {
         // Test with default hasher
-        let mut map1: SmallMap<8, i32, i32> = SmallMap::new();
+        let mut map1: TestSmallMap<8, i32, i32> = TestSmallMap::new();
         #[cfg(feature = "std")]
-        let _: &SmallMap<8, i32, i32, RandomState> = &map1;
+        let _: &TestSmallMap<8, i32, i32, RandomState> = &map1;
         #[cfg(not(feature = "std"))]
-        let _: &SmallMap<8, i32, i32, foldhash::fast::RandomState> = &map1;
+        let _: &TestSmallMap<8, i32, i32, RandomState> = &map1;
         map1.insert(1, 10);
         assert_eq!(map1.get(&1), Some(&10));
 
         // Test with explicit RandomState
-        let mut map2: SmallMap<8, i32, i32, RandomState> = SmallMap::default();
+        let mut map2: TestSmallMap<8, i32, i32, RandomState> = TestSmallMap::default();
         map2.insert(1, 10);
         assert_eq!(map2.get(&1), Some(&10));
     }
@@ -2048,7 +2136,7 @@ mod tests {
 
         // Setup:
         // Map has 3 items.
-        let mut map = SmallMap::<4, i32, PanicOnClone>::with_capacity(4);
+        let mut map = TestSmallMap::<4, i32, PanicOnClone>::with_capacity(4);
         map.insert(
             1,
             PanicOnClone {
@@ -2099,7 +2187,7 @@ mod tests {
         // MIN_LINEAR_LEN = 4.
 
         // We use a custom threshold of 4.
-        type BugMap = SmallMap<8, i32, i32, RandomState, RandomState, 4>;
+        type BugMap = TestSmallMap<8, i32, i32, RandomState, RandomState, 4>;
         let mut map = BugMap::new();
 
         unsafe {
@@ -2143,7 +2231,7 @@ mod tests {
             }
         }
 
-        let mut map: SmallMap<16, u32, PanicOnDrop> = SmallMap::default();
+        let mut map: TestSmallMap<16, u32, PanicOnDrop> = TestSmallMap::default();
         for i in 0..8u32 {
             let tag = if i == 4 {
                 "panic".to_string()

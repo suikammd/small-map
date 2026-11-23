@@ -22,9 +22,6 @@ ahash = { version = "0.8", default-features = false, optional = true }
 rustc-hash = { version = "2", default-features = false, optional = true }
 rapidhash = { version = "4", default-features = false, optional = true }
 
-# Used by the default no_std heap/inline hasher in src/lib.rs.
-foldhash = { version = "0.2.0", default-features = false }
-
 [dev-dependencies]
 rand = { version = "0.9" }
 criterion = { version = "0.8", features = ["html_reports"] }

@@ -133,7 +133,7 @@ mod tests {
 
         let deserializer: MapDeserializer<'_, _, serde_json::Error> =
             MapDeserializer::new(items.iter().cloned());
-        let deserialized: SmallMap<4, u32, u32> = SmallMap::deserialize(deserializer).unwrap();
+        let deserialized: TestMap = SmallMap::deserialize(deserializer).unwrap();
 
         assert_eq!(deserialized.len(), 8);
         assert!(!deserialized.is_inline());
@@ -142,6 +142,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn default_hashers_inline_and_heap_roundtrip() {
         for len in [2u32, 8] {

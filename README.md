@@ -46,59 +46,58 @@ SmallSet is implemented as a wrapper around SmallMap where the value is `()`, pr
 
 ## `no_std` with `alloc`
 
-The `std` feature is enabled by default. To use `SmallMap` or `SmallSet` without `std`, disable the default features:
-
-```toml
-[dependencies]
-small-map = { version = "0.2", default-features = false }
-```
-
-Without an additional hasher feature, the collections default to `foldhash::fast::RandomState` for heap and inline hashing. To use an external hasher and its aliases, enable one, for example:
+The `std` feature is enabled by default. To use `SmallMap` or `SmallSet` without `std`, disable the default features and choose a hasher supported by your target:
 
 ```toml
 [dependencies]
 small-map = { version = "0.2", default-features = false, features = ["fxhash"] }
 ```
 
-This provides `FxSmallMap` and `FxSmallSet`; `rapidhash` and `ahash` provide corresponding aliases. For other hashers, specify `SH` for heap storage and `SI` for inline storage, then construct the collection with `with_hashers` or `with_capacity_and_hashers`.
+This provides `FxSmallMap` and `FxSmallSet`; `rapidhash` and `ahash` provide corresponding aliases:
 
-Inline storage does not allocate. Growing beyond `N` spills to a `hashbrown::HashMap` and requires `alloc`; a final `no_std` binary using the heap-backed paths must provide a global allocator.
+```rust
+use small_map::FxSmallMap;
 
-The no_std default hasher does not provide the same HashDoS resistance as std's `RandomState`. Each hasher also has its own platform requirements, so availability is not guaranteed on every target.
+type MyMap<K, V> = FxSmallMap<32, K, V>;
 
-To keep std's `RandomState` as the heap hasher while disabling the other default features, enable `std` explicitly.
+let mut map = MyMap::new();
+map.insert(1_u8, 2_u8);
+assert_eq!(map.get(&1), Some(&2));
+```
+
+Without `std`, `SmallMap` and `SmallSet` do **not** choose an implicit heap or inline hasher type. The aliases above supply both. To choose custom hashers, explicitly specify `SH` for heap storage and `SI` for inline storage, then pass their builders to `with_hashers` or `with_capacity_and_hashers`:
+
+```rust
+use rustc_hash::FxBuildHasher;
+use small_map::SmallMap;
+
+type MyMap<K, V> = SmallMap<32, K, V, FxBuildHasher, FxBuildHasher>;
+
+let mut map = MyMap::with_hashers(FxBuildHasher::default(), FxBuildHasher::default());
+map.insert(1_u8, 2_u8);
+assert_eq!(map.get(&1), Some(&2));
+```
+
+For custom hashers like this, also depend on the selected hasher crate directly. Heap and inline hashers have different roles and may be different types. Choose each based on your security, performance, and target requirements. Inline storage does not allocate. Growing beyond `N` spills to a `hashbrown::HashMap` and requires `alloc`; the final application must provide a global allocator when using that path.
 
 ## Upgrading to 0.2.0
 
-`std` remains in the default features, and for std users the simplest upgrade
-is to keep it, including with `default-features = false`:
+The default configuration remains based on std and keeps `std::collections::hash_map::RandomState` as the heap hasher. If you use std, keep the `std` feature enabled, including with `default-features = false`:
 
 ```toml
 [dependencies]
 small-map = { version = "0.2", default-features = false, features = ["std"] }
 ```
 
-Existing std heap-hasher arguments remain valid when std is available. The
-breaking change is that code relying on the implicit heap type must not assume
-that turning std off leaves it unchanged.
+With `std`, inline hashing retains its existing rapidhash, fxhash, ahash, then std `RandomState` selection order. Existing default `SmallMap<N, K, V>` and `SmallSet<N, T>` declarations therefore stay valid in this configuration. Other hasher features do not replace std's heap-hasher default.
 
-### If you develop for `no_std`
+### For `no_std`
 
-Use `default-features = false`. The default heap (and, without an external
-hasher feature, the inline fallback) becomes `foldhash::fast::RandomState`. This
-is a different concrete type from std's `RandomState`. You can also use explicit
-supported external hashers with `with_hashers` or `with_capacity_and_hashers`,
-including aliases such as `FxSmallMap`/`FxSmallSet`.
+Use `default-features = false` and one of the supported hasher aliases, or explicit `SH` and `SI` parameters as shown above. There is no implicit foldhash or std `RandomState` fallback, so an omitted hasher in that configuration must be supplied by your code rather than by feature-dependent inference.
 
-Inline storage still needs no allocator. Growing beyond `N` requires a global
-allocator for the heap-backed path. Do not treat the foldhash default as a
-substitute for std's HashDoS resistance; foldhash is non-cryptographic and its
-seeding depends on target capabilities such as atomic support.
+### If your concrete heap type is std `RandomState`
 
-### If you explicitly depend on std heap types
-
-When std is available, use explicit generic parameters for heap hasher and inline
-hasher rather than leaving them to feature-dependent inference:
+On a std-capable target, opting out of the other default features retains the conventional declarations:
 
 ```rust
 use small_map::SmallSet;
@@ -109,13 +108,9 @@ fn make_set() -> SmallSet<8, u32, RandomState> {
 }
 ```
 
-This declaration expresses `SH = std::RandomState` explicitly while leaving `SI`
-to its default rapidhash-first selection. `SH` and `SI` continue to refer to heap
-and inline storage respectively. Default feature resolution means the resolved
-small-map crate is built once with the chosen features, not twice with separate
-std/no_std variants. If you must use std heap behavior with std disabled in the
-crate feature graph, use that explicit heap type or select a different external
-hasher supported by your target.
+Here `SH` is explicitly std's `RandomState`, while `SI` uses its std-enabled selection. This requires the small-map `std` feature shown above.
+
+If small-map's `std` feature is disabled but your hosted application still uses std types, specify both hasher types explicitly, for example `SmallSet<8, u32, RandomState, RandomState>`. Cargo enables a dependency's features for the whole dependency graph: once `std` is enabled, the usual std defaults are available; leaving them disabled does not make `std::RandomState` the implicit heap type. Explicit hasher types keep your selected heap and inline hashers independent of that resolution.
 
 ## Choosing N
 

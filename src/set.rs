@@ -6,9 +6,9 @@ use core::{
     iter::FusedIterator,
 };
 
-use crate::{
-    DefaultHeapHasher, DefaultInlineHasher, Equivalent, SmallMap, DEFAULT_LINEAR_THRESHOLD,
-};
+#[cfg(feature = "std")]
+use crate::{DefaultHeapHasher, DefaultInlineHasher, DEFAULT_LINEAR_THRESHOLD};
+use crate::{Equivalent, SmallMap};
 
 /// A hash set implemented as a [`SmallMap`] where the value is `()`.
 ///
@@ -41,18 +41,20 @@ use crate::{
 ///
 /// - `T`: Element type. Must implement `Eq + Hash` for most operations.
 ///
-/// - `SH`: Hasher for heap storage. Default: `RandomState` with `std`, otherwise
-///   `foldhash::fast::RandomState`. Enable a hasher feature and use its type alias, or specify `SH`
-///   and `SI` explicitly with [`SmallSet::with_hashers`] to choose another hasher.
+/// - `SH`: Hasher for heap storage. Defaults to `std::collections::hash_map::RandomState` with
+///   `std`. Without `std`, specify it and `SI` explicitly, or use a supported external hasher's
+///   type alias. Custom hashers can be passed to [`SmallSet::with_hashers`].
 ///
-/// - `SI`: Hasher for inline storage. Default: `DefaultInlineHasher`.
+/// - `SI`: Hasher for inline storage. Its std defaults follow the same order as [`SmallMap`].
+///   Without `std`, specify it explicitly or use an alias that provides it.
 ///
 /// - `LINEAR_THRESHOLD`: Threshold for switching between linear and SIMD search. Default:
-///   [`DEFAULT_LINEAR_THRESHOLD`].
+///   [`crate::DEFAULT_LINEAR_THRESHOLD`].
 ///
 /// # Examples
 ///
 /// ```
+/// # #[cfg(feature = "std")] {
 /// use small_map::SmallSet;
 ///
 /// // Type inference lets us omit an explicit type signature (which
@@ -80,6 +82,7 @@ use crate::{
 /// for book in &books {
 ///     println!("{}", book);
 /// }
+/// # }
 /// ```
 ///
 /// The easiest way to use `SmallSet` with a custom type is to derive
@@ -87,6 +90,7 @@ use crate::{
 /// future be implied by [`Eq`].
 ///
 /// ```
+/// # #[cfg(feature = "std")] {
 /// use small_map::SmallSet;
 ///
 /// #[derive(Hash, Eq, PartialEq, Debug)]
@@ -118,19 +122,23 @@ use crate::{
 /// for x in &vikings {
 ///     println!("{:?}", x);
 /// }
+/// # }
 /// ```
 ///
 /// A `SmallSet` with a fixed list of elements can be initialized from an array:
 ///
 /// ```
+/// # #[cfg(feature = "std")] {
 /// use small_map::SmallSet;
 ///
 /// let viking_names: SmallSet<8, &'static str> = ["Einar", "Olaf", "Harald"].into_iter().collect();
 /// // use the values stored in the set
+/// # }
 /// ```
 ///
 /// [`Cell`]: core::cell::Cell
 /// [`RefCell`]: core::cell::RefCell
+#[cfg(feature = "std")]
 #[derive(Clone)]
 pub struct SmallSet<
     const N: usize,
@@ -138,6 +146,18 @@ pub struct SmallSet<
     SH = DefaultHeapHasher,
     SI = DefaultInlineHasher,
     const LINEAR_THRESHOLD: usize = DEFAULT_LINEAR_THRESHOLD,
+> {
+    pub(crate) map: SmallMap<N, T, (), SH, SI, LINEAR_THRESHOLD>,
+}
+
+#[cfg(not(feature = "std"))]
+#[derive(Clone)]
+pub struct SmallSet<
+    const N: usize,
+    T,
+    SH,
+    SI,
+    const LINEAR_THRESHOLD: usize = { crate::DEFAULT_LINEAR_THRESHOLD },
 > {
     pub(crate) map: SmallMap<N, T, (), SH, SI, LINEAR_THRESHOLD>,
 }
@@ -160,6 +180,7 @@ impl<const N: usize, T, SH: Default, SI: Default, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use std::collections::hash_map::RandomState;
     ///
     /// use small_map::SmallSet;
@@ -168,6 +189,7 @@ impl<const N: usize, T, SH: Default, SI: Default, const LINEAR_THRESHOLD: usize>
     /// assert_eq!(set.capacity(), 8);
     /// let set: SmallSet<8, u32, RandomState> = SmallSet::default();
     /// assert_eq!(set.capacity(), 8);
+    /// # }
     /// ```
     #[inline]
     fn default() -> Self {
@@ -183,10 +205,12 @@ impl<const N: usize, T, SH: Default, SI: Default, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let mut set: SmallSet<8, &str> = SmallSet::new();
     /// set.insert("a");
+    /// # }
     /// ```
     #[inline]
     pub fn new() -> Self {
@@ -201,10 +225,12 @@ impl<const N: usize, T, SH: Default, SI: Default, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let mut set: SmallSet<8, &str> = SmallSet::with_capacity(100);
     /// assert!(!set.is_inline());
+    /// # }
     /// ```
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
@@ -226,6 +252,7 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use std::collections::hash_map::RandomState;
     ///
     /// use small_map::SmallSet;
@@ -233,6 +260,7 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// let s = RandomState::default();
     /// let mut set = SmallSet::<8, _, RandomState>::with_hasher(s);
     /// set.insert(1);
+    /// # }
     /// ```
     #[inline]
     pub fn with_hasher(hash_builder: SH) -> Self
@@ -253,6 +281,7 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use std::collections::hash_map::RandomState;
     ///
     /// #[cfg(feature = "fxhash")]
@@ -267,6 +296,7 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     ///         SmallSet::<8, _, RandomState, FxBuildHasher>::with_hashers(heap_hasher, inline_hasher);
     ///     set.insert(1);
     /// }
+    /// # }
     /// ```
     #[inline]
     pub fn with_hashers(heap_hasher: SH, inline_hasher: SI) -> Self {
@@ -284,6 +314,7 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use std::collections::hash_map::RandomState;
     ///
     /// use small_map::SmallSet;
@@ -291,6 +322,7 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// let s = RandomState::default();
     /// let mut set = SmallSet::<8, _, RandomState>::with_capacity_and_hasher(10, s);
     /// set.insert(1);
+    /// # }
     /// ```
     #[inline]
     pub fn with_capacity_and_hasher(capacity: usize, heap_hasher: SH) -> Self
@@ -311,6 +343,7 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use std::collections::hash_map::RandomState;
     ///
     /// use small_map::SmallSet;
@@ -323,6 +356,7 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     ///     inline_hasher,
     /// );
     /// set.insert(1);
+    /// # }
     /// ```
     #[inline]
     pub fn with_capacity_and_hashers(capacity: usize, heap_hasher: SH, inline_hasher: SI) -> Self {
@@ -336,6 +370,7 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let mut set: SmallSet<8, i32> = SmallSet::new();
@@ -345,6 +380,7 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     ///     set.insert(i);
     /// }
     /// assert!(!set.is_inline());
+    /// # }
     /// ```
     #[inline]
     pub fn is_inline(&self) -> bool {
@@ -356,10 +392,12 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let set: SmallSet<8, i32> = SmallSet::new();
     /// assert_eq!(set.capacity(), 8);
+    /// # }
     /// ```
     #[inline]
     pub fn capacity(&self) -> usize {
@@ -379,12 +417,14 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let mut set: SmallSet<8, i32> = SmallSet::new();
     /// set.insert(1);
     /// assert!(set.contains(&1));
     /// assert!(!set.contains(&2));
+    /// # }
     /// ```
     #[inline]
     pub fn contains<Q>(&self, value: &Q) -> bool
@@ -399,11 +439,13 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let set: SmallSet<8, _> = [1, 2, 3].into_iter().collect();
     /// assert_eq!(set.get(&2), Some(&2));
     /// assert_eq!(set.get(&4), None);
+    /// # }
     /// ```
     #[inline]
     pub fn get<Q>(&self, value: &Q) -> Option<&T>
@@ -423,6 +465,7 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let mut set: SmallSet<8, i32> = SmallSet::new();
@@ -430,6 +473,7 @@ where
     /// assert_eq!(set.insert(2), true);
     /// assert_eq!(set.insert(2), false);
     /// assert_eq!(set.len(), 1);
+    /// # }
     /// ```
     #[inline]
     pub fn insert(&mut self, value: T) -> bool {
@@ -442,6 +486,7 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let mut set: SmallSet<8, i32> = SmallSet::new();
@@ -449,6 +494,7 @@ where
     ///
     /// assert_eq!(set.replace(1), Some(1));
     /// assert_eq!(set.replace(2), None);
+    /// # }
     /// ```
     #[inline]
     pub fn replace(&mut self, value: T) -> Option<T> {
@@ -464,12 +510,14 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let mut set: SmallSet<8, i32> = SmallSet::new();
     /// set.insert(1);
     /// assert_eq!(set.remove(&1), true);
     /// assert_eq!(set.remove(&1), false);
+    /// # }
     /// ```
     #[inline]
     pub fn remove<Q>(&mut self, value: &Q) -> bool
@@ -484,12 +532,14 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let mut set: SmallSet<8, i32> = SmallSet::new();
     /// set.insert(1);
     /// assert_eq!(set.take(&1), Some(1));
     /// assert_eq!(set.take(&1), None);
+    /// # }
     /// ```
     #[inline]
     pub fn take<Q>(&mut self, value: &Q) -> Option<T>
@@ -506,11 +556,13 @@ where
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let mut set: SmallSet<8, i32> = (0..8).collect();
     /// set.retain(|&k| k % 2 == 0);
     /// assert_eq!(set.len(), 4);
+    /// # }
     /// ```
     #[inline]
     pub fn retain<F>(&mut self, mut f: F)
@@ -529,12 +581,14 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let mut set: SmallSet<8, i32> = SmallSet::new();
     /// set.insert(1);
     /// set.clear();
     /// assert!(set.is_empty());
+    /// # }
     /// ```
     #[inline]
     pub fn clear(&mut self) {
@@ -546,12 +600,14 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let mut set: SmallSet<8, i32> = SmallSet::new();
     /// assert_eq!(set.len(), 0);
     /// set.insert(1);
     /// assert_eq!(set.len(), 1);
+    /// # }
     /// ```
     #[inline]
     pub fn len(&self) -> usize {
@@ -563,12 +619,14 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let mut set: SmallSet<8, i32> = SmallSet::new();
     /// assert!(set.is_empty());
     /// set.insert(1);
     /// assert!(!set.is_empty());
+    /// # }
     /// ```
     #[inline]
     pub fn is_empty(&self) -> bool {
@@ -581,6 +639,7 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use small_map::SmallSet;
     ///
     /// let mut set = SmallSet::<8, _>::new();
@@ -591,6 +650,7 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// for x in set.iter() {
     ///     println!("{}", x);
     /// }
+    /// # }
     /// ```
     #[inline]
     pub fn iter(&self) -> Iter<'_, N, T> {
@@ -750,11 +810,21 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::RandomState;
+
     use super::*;
+
+    type TestSmallSet<
+        const N: usize,
+        T,
+        SH = RandomState,
+        SI = RandomState,
+        const LINEAR_THRESHOLD: usize = { crate::DEFAULT_LINEAR_THRESHOLD },
+    > = SmallSet<N, T, SH, SI, LINEAR_THRESHOLD>;
 
     #[test]
     fn test_basic_operations() {
-        let mut set: SmallSet<8, i32> = SmallSet::new();
+        let mut set: TestSmallSet<8, i32> = TestSmallSet::new();
         assert_eq!(set.len(), 0);
         assert!(set.is_empty());
         assert!(set.is_inline());
@@ -775,7 +845,7 @@ mod tests {
 
     #[test]
     fn test_spill_to_heap() {
-        let mut set: SmallSet<4, i32> = SmallSet::new();
+        let mut set: TestSmallSet<4, i32> = TestSmallSet::new();
         assert!(set.is_inline());
 
         for i in 0..10 {
@@ -792,7 +862,7 @@ mod tests {
 
     #[test]
     fn test_iteration() {
-        let mut set: SmallSet<8, i32> = SmallSet::new();
+        let mut set: TestSmallSet<8, i32> = TestSmallSet::new();
         for i in 0..5 {
             set.insert(i);
         }
@@ -804,7 +874,7 @@ mod tests {
 
     #[test]
     fn test_from_iterator() {
-        let set: SmallSet<8, i32> = (0..5).collect();
+        let set: TestSmallSet<8, i32> = (0..5).collect();
         assert_eq!(set.len(), 5);
         for i in 0..5 {
             assert!(set.contains(&i));
@@ -813,9 +883,9 @@ mod tests {
 
     #[test]
     fn test_equality() {
-        let set1: SmallSet<8, i32> = (0..5).collect();
-        let set2: SmallSet<8, i32> = (0..5).collect();
-        let set3: SmallSet<8, i32> = (1..6).collect();
+        let set1: TestSmallSet<8, i32> = (0..5).collect();
+        let set2: TestSmallSet<8, i32> = (0..5).collect();
+        let set3: TestSmallSet<8, i32> = (1..6).collect();
 
         assert_eq!(set1, set2);
         assert_ne!(set1, set3);
@@ -823,7 +893,7 @@ mod tests {
 
     #[test]
     fn test_retain() {
-        let mut set: SmallSet<8, i32> = (0..8).collect();
+        let mut set: TestSmallSet<8, i32> = (0..8).collect();
         set.retain(|&x| x % 2 == 0);
         assert_eq!(set.len(), 4);
         assert!(set.contains(&0));
@@ -834,14 +904,14 @@ mod tests {
 
     #[test]
     fn test_get() {
-        let set: SmallSet<8, _> = [1, 2, 3].into_iter().collect();
+        let set: TestSmallSet<8, _> = [1, 2, 3].into_iter().collect();
         assert_eq!(set.get(&2), Some(&2));
         assert_eq!(set.get(&4), None);
     }
 
     #[test]
     fn test_take() {
-        let mut set: SmallSet<8, i32> = SmallSet::new();
+        let mut set: TestSmallSet<8, i32> = TestSmallSet::new();
         set.insert(1);
         set.insert(2);
         assert_eq!(set.take(&1), Some(1));
@@ -852,7 +922,7 @@ mod tests {
 
     #[test]
     fn test_replace() {
-        let mut set: SmallSet<8, i32> = SmallSet::new();
+        let mut set: TestSmallSet<8, i32> = TestSmallSet::new();
         set.insert(1);
         assert_eq!(set.replace(1), Some(1));
         assert_eq!(set.replace(2), None);
@@ -861,17 +931,17 @@ mod tests {
 
     #[test]
     fn test_capacity() {
-        let set: SmallSet<16, i32> = SmallSet::new();
+        let set: TestSmallSet<16, i32> = TestSmallSet::new();
         assert_eq!(set.capacity(), 16);
 
-        let set: SmallSet<8, i32> = SmallSet::with_capacity(20);
+        let set: TestSmallSet<8, i32> = TestSmallSet::with_capacity(20);
         assert!(set.capacity() >= 20);
         assert!(!set.is_inline());
     }
 
     #[test]
     fn test_debug() {
-        let mut set: SmallSet<8, i32> = SmallSet::new();
+        let mut set: TestSmallSet<8, i32> = TestSmallSet::new();
         set.insert(1);
         set.insert(2);
         let debug_str = format!("{:?}", set);
@@ -881,7 +951,7 @@ mod tests {
 
     #[test]
     fn test_extend() {
-        let mut set: SmallSet<8, i32> = SmallSet::new();
+        let mut set: TestSmallSet<8, i32> = TestSmallSet::new();
         set.extend([1, 2, 3]);
         assert_eq!(set.len(), 3);
         set.extend([3, 4, 5]);
@@ -890,7 +960,7 @@ mod tests {
 
     #[test]
     fn test_into_iterator() {
-        let set: SmallSet<8, i32> = [1, 2, 3].into_iter().collect();
+        let set: TestSmallSet<8, i32> = [1, 2, 3].into_iter().collect();
         let mut vec: Vec<_> = set.into_iter().collect();
         vec.sort();
         assert_eq!(vec, vec![1, 2, 3]);
@@ -898,7 +968,7 @@ mod tests {
 
     #[test]
     fn test_clone() {
-        let set1: SmallSet<8, i32> = [1, 2, 3].into_iter().collect();
+        let set1: TestSmallSet<8, i32> = [1, 2, 3].into_iter().collect();
         let set2 = set1.clone();
         assert_eq!(set1, set2);
     }
@@ -908,14 +978,14 @@ mod tests {
         use std::{collections::hash_map::DefaultHasher, hash::BuildHasherDefault};
 
         let s = BuildHasherDefault::<DefaultHasher>::default();
-        let mut set = SmallSet::<8, i32, _>::with_hasher(s);
+        let mut set = TestSmallSet::<8, i32, _>::with_hasher(s);
         set.insert(1);
         assert!(set.contains(&1));
     }
 
     #[test]
     fn test_clear() {
-        let mut set: SmallSet<8, i32> = [1, 2, 3].into_iter().collect();
+        let mut set: TestSmallSet<8, i32> = [1, 2, 3].into_iter().collect();
         assert_eq!(set.len(), 3);
         set.clear();
         assert_eq!(set.len(), 0);
@@ -924,7 +994,7 @@ mod tests {
 
     #[test]
     fn test_insert_duplicates() {
-        let mut set: SmallSet<8, i32> = SmallSet::new();
+        let mut set: TestSmallSet<8, i32> = TestSmallSet::new();
         assert!(set.insert(1));
         assert!(!set.insert(1));
         assert_eq!(set.len(), 1);
@@ -932,7 +1002,7 @@ mod tests {
 
     #[test]
     fn test_contains_different_types() {
-        let mut set: SmallSet<8, String> = SmallSet::new();
+        let mut set: TestSmallSet<8, String> = TestSmallSet::new();
         set.insert("hello".to_string());
 
         // Test with &str

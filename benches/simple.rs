@@ -14,8 +14,8 @@ macro_rules! get_set {
 }
 
 #[inline(always)]
-fn smallmap<const N: usize, H: std::hash::BuildHasher + Default>(n: u8) {
-    let mut map = small_map::SmallMap::<N, _, _, H>::with_capacity(n as usize);
+fn smallmap<const N: usize>(n: u8) {
+    let mut map = small_map::FxSmallMap::<N, _, _>::with_capacity(n as usize);
     get_set!(map, n);
 }
 
@@ -81,7 +81,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             $group.bench_with_input(
                 BenchmarkId::new("small-map::FxSmallMap ⬅", size),
                 &size,
-                |b, &n| b.iter(|| smallmap::<$N, rustc_hash::FxBuildHasher>(n)),
+                |b, &n| b.iter(|| smallmap::<$N>(n)),
             );
             // Not run MicroMap for bigger size, as it gets very big
             if size <= micromap_threshold {
