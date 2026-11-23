@@ -65,7 +65,9 @@ map.insert(1_u8, 2_u8);
 assert_eq!(map.get(&1), Some(&2));
 ```
 
-Without `std`, `SmallMap` and `SmallSet` do **not** choose an implicit heap or inline hasher type. The aliases above supply both. To choose custom hashers, explicitly specify `SH` for heap storage and `SI` for inline storage, then pass their builders to `with_hashers` or `with_capacity_and_hashers`:
+An alias fixes its heap hasher (`SH`), but its inline hasher (`SI`) still follows the rapidhash → fxhash → ahash priority. For example, `FxSmallMap` uses rapidhash inline when rapidhash is enabled, and fxhash otherwise. To keep an exact `SI` across Cargo feature combinations, explicitly specify both hasher types and pass both builders to `with_hashers`, as in the custom example below.
+
+Without `std`, `SmallMap` and `SmallSet` do **not** choose an implicit heap or inline hasher type. To choose custom hashers, explicitly specify `SH` for heap storage and `SI` for inline storage, then pass their builders to `with_hashers` or `with_capacity_and_hashers`:
 
 ```rust
 use rustc_hash::FxBuildHasher;
@@ -108,9 +110,7 @@ fn make_set() -> SmallSet<8, u32, RandomState> {
 }
 ```
 
-Here `SH` is explicitly std's `RandomState`, while `SI` uses its std-enabled selection. This requires the small-map `std` feature shown above.
-
-If small-map's `std` feature is disabled but your hosted application still uses std types, specify both hasher types explicitly, for example `SmallSet<8, u32, RandomState, RandomState>`. Cargo enables a dependency's features for the whole dependency graph: once `std` is enabled, the usual std defaults are available; leaving them disabled does not make `std::RandomState` the implicit heap type. Explicit hasher types keep your selected heap and inline hashers independent of that resolution.
+This example requires small-map's `std` feature. On a std-capable host with that feature disabled, specify both hasher types explicitly, for example `SmallSet<8, u32, RandomState, RandomState>`; explicitly specified types stay fixed when other dependencies enable additional small-map features.
 
 ## Choosing N
 

@@ -44,12 +44,4 @@ feature-specific heap type.
 ### Serde and generic hashing
 
 Serialization/deserialization now handles custom inline hashers and
-`LINEAR_THRESHOLD`, including configurations such as `RapidSmallMap`. These are
-existing SmallMap parameters, not newly added storage concepts. Tests cover both
-inline and direct heap deserialization with a size-hint-capable input.
-
-### Compatibility checks
-
-CI covers std default construction, explicit-hasher no_std configurations,
-serde inline and heap paths, and riscv32i no_std builds with supported external
-hashers. Optional dependencies retain their own platform requirements.
+`LINEAR_THRESHOLD`, with tests for both inline and direct heap deserialization.

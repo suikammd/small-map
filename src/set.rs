@@ -150,6 +150,7 @@ pub struct SmallSet<
     pub(crate) map: SmallMap<N, T, (), SH, SI, LINEAR_THRESHOLD>,
 }
 
+/// The no_std form requires explicit `SH` and `SI`. Keep its storage in sync with the std form.
 #[cfg(not(feature = "std"))]
 #[derive(Clone)]
 pub struct SmallSet<
@@ -284,18 +285,18 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     /// # #[cfg(feature = "std")] {
     /// use std::collections::hash_map::RandomState;
     ///
-    /// #[cfg(feature = "fxhash")]
+    /// # #[cfg(feature = "fxhash")]
     /// use rustc_hash::FxBuildHasher;
     /// use small_map::SmallSet;
     ///
-    /// #[cfg(feature = "fxhash")]
-    /// {
-    ///     let heap_hasher = RandomState::default();
-    ///     let inline_hasher = FxBuildHasher::default();
-    ///     let mut set =
-    ///         SmallSet::<8, _, RandomState, FxBuildHasher>::with_hashers(heap_hasher, inline_hasher);
-    ///     set.insert(1);
-    /// }
+    /// # #[cfg(feature = "fxhash")]
+    /// # {
+    /// let heap_hasher = RandomState::default();
+    /// let inline_hasher = FxBuildHasher::default();
+    /// let mut set =
+    ///     SmallSet::<8, _, RandomState, FxBuildHasher>::with_hashers(heap_hasher, inline_hasher);
+    /// set.insert(1);
+    /// # }
     /// # }
     /// ```
     #[inline]
@@ -814,11 +815,16 @@ mod tests {
 
     use super::*;
 
+    #[cfg(feature = "std")]
+    type TestInlineHasher = crate::DefaultInlineHasher;
+    #[cfg(not(feature = "std"))]
+    type TestInlineHasher = RandomState;
+
     type TestSmallSet<
         const N: usize,
         T,
         SH = RandomState,
-        SI = RandomState,
+        SI = TestInlineHasher,
         const LINEAR_THRESHOLD: usize = { crate::DEFAULT_LINEAR_THRESHOLD },
     > = SmallSet<N, T, SH, SI, LINEAR_THRESHOLD>;
 

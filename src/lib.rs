@@ -209,6 +209,7 @@ pub enum SmallMap<
     Inline(Inline<N, K, V, SH, SI, LINEAR_THRESHOLD>),
 }
 
+/// The no_std form requires explicit `SH` and `SI`. Keep its variants in sync with the std form.
 #[cfg(not(feature = "std"))]
 #[derive(Clone)]
 pub enum SmallMap<
@@ -1237,12 +1238,17 @@ mod tests {
 
     use crate::{SmallMap, DEFAULT_LINEAR_THRESHOLD};
 
+    #[cfg(feature = "std")]
+    type TestInlineHasher = crate::DefaultInlineHasher;
+    #[cfg(not(feature = "std"))]
+    type TestInlineHasher = RandomState;
+
     type TestSmallMap<
         const N: usize,
         K,
         V,
         SH = RandomState,
-        SI = RandomState,
+        SI = TestInlineHasher,
         const LINEAR_THRESHOLD: usize = DEFAULT_LINEAR_THRESHOLD,
     > = SmallMap<N, K, V, SH, SI, LINEAR_THRESHOLD>;
 
