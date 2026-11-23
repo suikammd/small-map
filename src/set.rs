@@ -1,12 +1,13 @@
 //! A small inline SIMD-accelerated hash set based on [`SmallMap`].
 
-use crate::{
-    DefaultHeapHasher, DefaultInlineHasher, Equivalent, SmallMap, DEFAULT_LINEAR_THRESHOLD,
-};
 use core::{
     fmt::{self, Debug},
     hash::{BuildHasher, Hash},
     iter::FusedIterator,
+};
+
+use crate::{
+    DefaultHeapHasher, DefaultInlineHasher, Equivalent, SmallMap, DEFAULT_LINEAR_THRESHOLD,
 };
 
 /// A hash set implemented as a [`SmallMap`] where the value is `()`.
@@ -258,7 +259,8 @@ impl<const N: usize, T, SH, SI, const LINEAR_THRESHOLD: usize>
     ///
     /// let heap_hasher = RandomState::default();
     /// let inline_hasher = RandomState::default();
-    /// let mut set = SmallSet::<8, _, RandomState, RandomState>::with_hashers(heap_hasher, inline_hasher);
+    /// let mut set =
+    ///     SmallSet::<8, _, RandomState, RandomState>::with_hashers(heap_hasher, inline_hasher);
     /// set.insert(1);
     /// ```
     #[inline]

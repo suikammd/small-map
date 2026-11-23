@@ -38,12 +38,11 @@ use core::{
     ops::Index,
 };
 
-use hashbrown::HashMap;
-use inline::Inline;
-
 // Mark the direct no_std dependency as used during std-only dependency lint builds.
 #[cfg(feature = "std")]
 use foldhash as _;
+use hashbrown::HashMap;
+use inline::Inline;
 
 #[cfg(feature = "std")]
 type DefaultHeapHasher = std::collections::hash_map::RandomState;
@@ -2011,6 +2010,8 @@ mod tests {
         let mut map1: SmallMap<8, i32, i32> = SmallMap::new();
         #[cfg(feature = "std")]
         let _: &SmallMap<8, i32, i32, RandomState> = &map1;
+        #[cfg(not(feature = "std"))]
+        let _: &SmallMap<8, i32, i32, foldhash::fast::RandomState> = &map1;
         map1.insert(1, 10);
         assert_eq!(map1.get(&1), Some(&10));
 

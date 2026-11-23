@@ -50,14 +50,14 @@ The `std` feature is enabled by default. To use `SmallMap` or `SmallSet` without
 
 ```toml
 [dependencies]
-small-map = { version = "0.1", default-features = false }
+small-map = { version = "0.2", default-features = false }
 ```
 
 Without an additional hasher feature, the collections default to `foldhash::fast::RandomState` for heap and inline hashing. To use an external hasher and its aliases, enable one, for example:
 
 ```toml
 [dependencies]
-small-map = { version = "0.1", default-features = false, features = ["fxhash"] }
+small-map = { version = "0.2", default-features = false, features = ["fxhash"] }
 ```
 
 This provides `FxSmallMap` and `FxSmallSet`; `rapidhash` and `ahash` provide corresponding aliases. For other hashers, specify `SH` for heap storage and `SI` for inline storage, then construct the collection with `with_hashers` or `with_capacity_and_hashers`.
@@ -67,6 +67,27 @@ Inline storage does not allocate. Growing beyond `N` spills to a `hashbrown::Has
 The no_std default hasher does not provide the same HashDoS resistance as std's `RandomState`. Each hasher also has its own platform requirements, so availability is not guaranteed on every target.
 
 To keep std's `RandomState` as the heap hasher while disabling the other default features, enable `std` explicitly.
+
+## Upgrading to 0.2.0
+
+`std` remains in the default features, so normal std use keeps the existing `std::collections::hash_map::RandomState` behavior. The changed boundary is opting out of std: with `default-features = false`, the default heap hasher becomes `foldhash::fast::RandomState` rather than `std::collections::hash_map::RandomState`.
+
+A Cargo feature named `ahash` enables an additional hasher backend, not a requirement to abandon std everywhere. Explicit `SH` and `SI` parameters still determine which hasher is used for heap and inline storage. Code that depends on the implicit heap type can therefore fail if it expects std's type.
+
+For example, if you explicitly want std's heap hasher, declare that type rather than relying on inference across configurations:
+
+```rust
+use small_map::SmallSet;
+use std::collections::hash_map::RandomState;
+
+fn make_set() -> SmallSet<8, u32, RandomState> {
+    SmallSet::with_hasher(RandomState::new())
+}
+```
+
+For `small-map = { default-features = false, features = ["std"] }`, this explicit annotation preserves the old std constructor argument as long as std is available. On a target without std, pick an external hasher or foldhash instead, as appropriate for that target.
+
+The no_std default hasher is not a substitute for std's HashDoS resistance. foldhash is non-cryptographic, and its seeding also varies with target capabilities such as atomic support; see the selected hasher's documentation for the security tradeoffs of your workload.
 
 ## Choosing N
 

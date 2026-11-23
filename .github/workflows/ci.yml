@@ -41,6 +41,14 @@ jobs:
         if: matrix.rust == 'stable'
         run: cargo test --features ahash
 
+      - name: Run tests with std and ahash
+        if: matrix.rust == 'stable'
+        run: cargo test --no-default-features --features std,ahash
+
+      - name: Run tests with ahash and no_std
+        if: matrix.rust == 'stable'
+        run: cargo test --no-default-features --features ahash
+
       - name: Run tests (nightly)
         if: matrix.rust == 'nightly'
         run: cargo test --features ahash,nightly
