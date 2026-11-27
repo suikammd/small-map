@@ -7,7 +7,7 @@ use core::{
 };
 
 #[cfg(feature = "std")]
-use crate::{DefaultHeapHasher, DefaultInlineHasher, DEFAULT_LINEAR_THRESHOLD};
+use crate::{DefaultHeapHasher, DefaultInlineHasher};
 use crate::{Equivalent, SmallMap};
 
 /// A hash set implemented as a [`SmallMap`] where the value is `()`.
@@ -138,27 +138,14 @@ use crate::{Equivalent, SmallMap};
 ///
 /// [`Cell`]: core::cell::Cell
 /// [`RefCell`]: core::cell::RefCell
-#[cfg(feature = "std")]
 #[derive(Clone)]
 pub struct SmallSet<
     const N: usize,
     T,
-    SH = DefaultHeapHasher,
-    SI = DefaultInlineHasher,
-    const LINEAR_THRESHOLD: usize = DEFAULT_LINEAR_THRESHOLD,
-> {
-    pub(crate) map: SmallMap<N, T, (), SH, SI, LINEAR_THRESHOLD>,
-}
-
-/// The no_std form requires explicit `SH` and `SI`.
-// Keep its storage in sync with the std form.
-#[cfg(not(feature = "std"))]
-#[derive(Clone)]
-pub struct SmallSet<
-    const N: usize,
-    T,
-    SH,
-    SI,
+    #[cfg(feature = "std")] SH = DefaultHeapHasher,
+    #[cfg(not(feature = "std"))] SH,
+    #[cfg(feature = "std")] SI = DefaultInlineHasher,
+    #[cfg(not(feature = "std"))] SI,
     const LINEAR_THRESHOLD: usize = { crate::DEFAULT_LINEAR_THRESHOLD },
 > {
     pub(crate) map: SmallMap<N, T, (), SH, SI, LINEAR_THRESHOLD>,

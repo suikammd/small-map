@@ -193,32 +193,15 @@ pub const DEFAULT_LINEAR_THRESHOLD: usize = raw::Group::WIDTH;
 /// let mut map: SmallMap<8, &str, i32, RandomState, RandomState, 4> = SmallMap::new();
 /// # }
 /// ```
-#[cfg(feature = "std")]
 #[derive(Clone)]
 pub enum SmallMap<
     const N: usize,
     K,
     V,
-    SH = DefaultHeapHasher,
-    SI = DefaultInlineHasher,
-    const LINEAR_THRESHOLD: usize = DEFAULT_LINEAR_THRESHOLD,
-> {
-    /// Heap-allocated storage using `hashbrown::HashMap`.
-    Heap(HashMap<K, V, SH>),
-    /// Inline storage with SIMD-accelerated lookups.
-    Inline(Inline<N, K, V, SH, SI, LINEAR_THRESHOLD>),
-}
-
-/// The no_std form requires explicit `SH` and `SI`.
-// Keep its variants in sync with the std form.
-#[cfg(not(feature = "std"))]
-#[derive(Clone)]
-pub enum SmallMap<
-    const N: usize,
-    K,
-    V,
-    SH,
-    SI,
+    #[cfg(feature = "std")] SH = DefaultHeapHasher,
+    #[cfg(not(feature = "std"))] SH,
+    #[cfg(feature = "std")] SI = DefaultInlineHasher,
+    #[cfg(not(feature = "std"))] SI,
     const LINEAR_THRESHOLD: usize = DEFAULT_LINEAR_THRESHOLD,
 > {
     /// Heap-allocated storage using `hashbrown::HashMap`.
